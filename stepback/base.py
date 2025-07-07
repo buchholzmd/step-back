@@ -245,7 +245,7 @@ class Base:
         """
                 
         self.model.train()
-        if 'ScheduleFree' in type(self.opt).__name__:
+        if 'schedule' in type(self.opt).__name__.lower():
             self.opt.train()
 
         pbar = tqdm.tqdm(self.train_loader, disable=(not self.verbose))
@@ -308,7 +308,7 @@ class Base:
         
         self.model.eval()
 
-        if 'ScheduleFree' in type(self.opt).__name__:
+        if 'schedule' in type(self.opt).__name__.lower():
             self.opt.eval()
 
         score_dict = dict(zip(metric_dict.keys(), np.zeros(len(metric_dict))))
