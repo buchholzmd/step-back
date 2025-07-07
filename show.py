@@ -5,6 +5,7 @@ from matplotlib import pyplot as plt
 import pandas as pd
 import numpy as np
 import argparse
+import os
 
 from stepback.record import Record
 from stepback.utils import get_output_filenames
@@ -59,6 +60,9 @@ y0 = 0.3 if exp_id=='cifar100_resnet110' else 0.4 if exp_id=='cifar10_vit' else 
 
 fig, ax = R.plot_metric(df=df1, s='val_score', ylim=(y0, 1.05*df1.val_score.max()), log_scale=False, figsize=(4,3.5), legend=False)
 fig.subplots_adjust(top=0.975,bottom=0.16,left=0.16,right=0.975)
+
+os.makedirs('output/plots/' + exp_id, exist_ok=True)
+
 if save:
     fig.savefig('output/plots/' + exp_id + f'/all_val_score.pdf')
 

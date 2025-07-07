@@ -25,7 +25,6 @@ class Base:
                  data_dir: str=DEFAULTS.data_dir,
                  num_workers: int=DEFAULTS.num_workers,
                  data_parallel: Union[list, None]=DEFAULTS.data_parallel,
-                 log_every_k_steps: Union[int, None]=DEFAULTS.log_every_k_steps,
                  verbose: bool=DEFAULTS.verbose):
         """The main class. Performs one single training run plus evaluation.
 
@@ -38,7 +37,7 @@ class Base:
             Needs to have the keys ['loss_func', 'score_func', 'opt'].
         device : str, optional
             Device string, by default 'cuda'
-            If 'cuda' is specified, but not available on system, it switches to MPS or CPU.
+            If 'cuda' is specified, but not available on system, it switches to CPU.
         data_dir : str, optional
             Directory where datasets can be found, by default 'data/'
         num_workers : int, optional
@@ -46,9 +45,6 @@ class Base:
         data_parallel : Union[list, None], optional
             If not None, this specifies the device ids for DataParallel mode in Pytorch. By default None.
             See https://pytorch.org/docs/stable/generated/torch.nn.DataParallel.html.
-        log_every_k_steps: Union[int, None], optional
-            If not None, log batch loss and grad_norm every k steps. Careful: this results in larger output files.
-            By default None (no stepwise logging).
         verbose : bool, optional
             Verbose mode flag, by default False.
             If True, prints progress bars, model architecture and other useful information.
@@ -59,27 +55,18 @@ class Base:
         self.data_dir = data_dir
         self.num_workers = num_workers
         self.data_parallel = data_parallel
-        self.log_every_k_steps = log_every_k_steps
         self.verbose = verbose
 
-        # Device handling
+
         print("CUDA available? ", torch.cuda.is_available())
         
         if torch.cuda.is_available():
             self.device = torch.device(device)
         else:
-            # use MPS if available
-            try:
-                if torch.backends.mps.is_available() and device != "cpu":
-                    self.device = torch.device('mps')
-                else:
-                    self.device = torch.device('cpu')
-            except:
-                self.device = torch.device('cpu')
+            self.device = torch.device('cpu')
             
         print("Using device: ", self.device)
         
-        # Seeding
         self.seed = 1234567
         self.run_seed = 456789 + config.get('run_id', 0)
         torch.backends.cudnn.benchmark = False
@@ -125,13 +112,9 @@ class Base:
         # construct train loader
         _gen = torch.Generator()
         _gen.manual_seed(self.run_seed)
-        self.train_loader = DataLoader(self.train_set,
-                                       drop_last=True,
-                                       shuffle=True,
-                                       generator=_gen,
+        self.train_loader = DataLoader(self.train_set, drop_last=True, shuffle=True, generator=_gen,
                                        batch_size=self.config['batch_size'],
-                                       num_workers=self.num_workers
-        )
+                                       num_workers=self.num_workers)
         
         return
 
@@ -172,24 +155,22 @@ class Base:
         opt_obj, hyperp = get_optimizer(self.config['opt'])
         
         self._init_opt(opt_obj, hyperp)
-    
-        self.sched, self._step_scheduler_on_epoch = get_scheduler(self.config['opt'], self.opt)
+        
+        self.sched = get_scheduler(self.config['opt'], self.opt)
         
         #============ Results ==============
         opt_val = self._compute_opt_value()
         
         # Store useful information as summary
-        self.results['summary']['num_batches_per_epoch'] = len(self.train_loader)
-        self.results['summary']['step_scheduler_on_epoch'] = self._step_scheduler_on_epoch
         if opt_val is not None:
             self.results['summary']['opt_val'] = opt_val
 
         return 
     
-    def _init_opt(self, opt_obj, hyperp):
+    def _init_opt(self, opt_obj, hyperp, opt_name=None):
         """Initializes the opt object. If your optimizer needs custom commands, add them here."""
         
-        self.opt = opt_obj(params=self.model.parameters(), **hyperp)         
+        self.opt = opt_obj(params=self.model.parameters(), **hyperp)     
         
         print(self.opt)        
         return
@@ -198,12 +179,7 @@ class Base:
         start_time = str(datetime.datetime.now())
         score_list = []   
         self._epochs_trained = 0
-
-        _init_model_norm = l2_norm(self.model)
-        self.results['summary']['init_model_norm'] = _init_model_norm
-        if self.verbose:
-            print(f"Initial model L2-norm: ", _init_model_norm)
-
+        
         for epoch in range(self.config['max_epoch']):
             
             print(f"Epoch {epoch}, current learning rate", self.sched.get_last_lr()[0])
@@ -221,10 +197,7 @@ class Base:
             score_dict['train_epoch_time'] = e_time - s_time       
             score_dict['model_norm'] = l2_norm(self.model)        
             score_dict['grad_norm'] = grad_norm(self.model)
-            
-            if self.log_every_k_steps is not None:
-                score_dict['step_logs'] = copy.deepcopy(self._log_stepwise)
-
+                
             # Validation
             with torch.no_grad():
                 
@@ -233,11 +206,11 @@ class Base:
                 
                 train_dict = self.evaluate(self.train_set, 
                                            metric_dict = metric_dict,
-                )  
+                                           )  
             
                 val_dict = self.evaluate(self.val_set, 
                                          metric_dict = metric_dict,
-                )                     
+                                         )                     
                        
                 # Record metrics
                 score_dict.update(train_dict)
@@ -259,13 +232,11 @@ class Base:
             self._epochs_trained += 1
         
         end_time = str(datetime.datetime.now())
-
+        
         # ==== store =====================
         self.results['history'] = copy.deepcopy(score_list)
         self.results['summary']['start_time'] = start_time
         self.results['summary']['end_time'] = end_time
-        self.results['summary']['final_model_norm'] = l2_norm(self.model)
-        
         return
 
     def train_epoch(self):
@@ -274,6 +245,9 @@ class Base:
         """
                 
         self.model.train()
+        if 'ScheduleFree' in type(self.opt).__name__:
+            self.opt.train()
+
         pbar = tqdm.tqdm(self.train_loader, disable=(not self.verbose))
         
         timings_model = list()
@@ -281,13 +255,7 @@ class Base:
 
         t0 = time.time()
 
-        # Reset logging dictionaries
-        if self.log_every_k_steps is not None:
-            self._log_stepwise = {"loss": {}, "grad_norm": {}}
-            if not self._step_scheduler_on_epoch:
-                self._log_stepwise["lr"] = {}
-
-        for step_counter, batch in enumerate(pbar):
+        for batch in pbar:
             # Move batch to device
             data, targets = batch['data'].to(device=self.device), batch['targets'].to(device=self.device)
             
@@ -302,37 +270,24 @@ class Base:
             closure = lambda: self.training_loss.compute(out, targets)
             
             # see optim/README.md for explanation 
-            if hasattr(self.opt, "prestep"):
+            if hasattr(self.opt,"prestep"):
                 ind = batch['ind'].to(device=self.device)           # indices of batch members
                 self.opt.prestep(out, targets, ind, self.training_loss.name)
-            
+
             # Here the magic happens
             loss_val = self.opt.step(closure=closure) 
             
-            self. _sync_device()
-            
+            if self.device != torch.device('cpu'):
+                torch.cuda.synchronize()
             timings_dataloader.append(t1-t0) 
             t0 = time.time()                                        # model timing ends
             timings_model.append(t0-t1)                 
             
             pbar.set_description(f'Training - loss={loss_val:.3f} - time data: last={timings_dataloader[-1]:.3f},(mean={np.mean(timings_dataloader):.3f}) - time model+step: last={timings_model[-1]:.3f}(mean={np.mean(timings_model):.3f})')
 
-            # Log loss_val and grad_norm every k steps
-            if self.log_every_k_steps is not None:
-                total_step_counter = len(self.train_loader) * self._epochs_trained + step_counter
-                if step_counter % self.log_every_k_steps == 0:
-                    self._log_stepwise["loss"][total_step_counter] = loss_val.item()
-                    self._log_stepwise["grad_norm"][total_step_counter] = grad_norm(self.model)
-                    if not self._step_scheduler_on_epoch:
-                        self._log_stepwise["lr"][total_step_counter] = self.sched.get_last_lr()[0]
-
-
-            if not self._step_scheduler_on_epoch:
-                self.sched.step()
 
         # update learning rate             
-        if self._step_scheduler_on_epoch:
-            self.sched.step()   
+        self.sched.step()       
 
         return
     
@@ -352,6 +307,10 @@ class Base:
         pbar = tqdm.tqdm(dl, disable=(not self.verbose))
         
         self.model.eval()
+
+        if 'ScheduleFree' in type(self.opt).__name__:
+            self.opt.eval()
+
         score_dict = dict(zip(metric_dict.keys(), np.zeros(len(metric_dict))))
 
         timings_model = list()
@@ -370,16 +329,17 @@ class Base:
                 # metric takes average over batch ==> multiply with batch size
                 score_dict[_met] += _met_fun.compute(out, targets).item() * data.shape[0] 
             
-            timings_dataloader.append(t1-t0)
-            self. _sync_device()
-
+            timings_dataloader.append(t1-t0)                                         
+            if self.device != torch.device('cpu'):
+                torch.cuda.synchronize()        
             t0 = time.time()
             timings_model.append(t0-t1)    
 
             pbar.set_description(f'Validating {dataset.split}')
             pbar.set_description(f'Validating {dataset.split} - time data: last={timings_dataloader[-1]:.3f}(mean={np.mean(timings_dataloader):.3f}) - time model: last={timings_model[-1]:.3f}(mean={np.mean(timings_model):.3f})')
         
-
+            
+        
         for _met in metric_dict.keys():
             # Get from sum to average
             score_dict[_met] = float(score_dict[_met] / len(dl.dataset))
@@ -398,13 +358,6 @@ class Base:
                    path + self.name + '.mt')
 
         return         
-
-    def _sync_device(self):
-        if self.device == torch.device('mps'):
-            torch.mps.synchronize()
-        else:
-            if self.device != torch.device('cpu'):
-                torch.cuda.synchronize()
 
     def _compute_opt_value(self):
         """

@@ -1,5 +1,5 @@
 import torch
-from torch.optim.lr_scheduler import LambdaLR, StepLR, SequentialLR
+from torch.optim.lr_scheduler import LambdaLR, StepLR
 import warnings
 from typing import Tuple
 
@@ -9,6 +9,8 @@ from .sps import SPS
 from .adabound import AdaBoundW
 from .adabelief import AdaBelief
 from .lion import Lion
+from .schedule_free import SGDScheduleFree
+from .schedulet import SGDSchedulet
 
 def get_optimizer(opt_config: dict) -> Tuple[torch.optim.Optimizer, dict]:
     """
@@ -143,6 +145,23 @@ def get_optimizer(opt_config: dict) -> Tuple[torch.optim.Optimizer, dict]:
                   'weight_decay': opt_config.get('weight_decay', 0),
                   'betas': opt_config.get('betas', (0.9, 0.99)),
                   }
+        
+    elif name == 'schedule-free':
+        opt_obj = SGDScheduleFree
+        hyperp = {'lr': opt_config.get('lr', 1.0),
+                  'momentum': opt_config.get('weight_decay', 0.9),
+                  'weight_decay': opt_config.get('weight_decay', 0),
+                  'warmup_steps': opt_config.get('warmup_steps', 0),
+                  'r': opt_config.get('r', 0),
+                  'weight_lr_power': opt_config.get('weight_lr_power', 2.0),
+                  }
+    elif name == 'schedulet':
+        opt_obj = SGDSchedulet
+        hyperp = {'lr': opt_config.get('lr', 1.0),
+                  'momentum': opt_config.get('weight_decay', 0.9),
+                  'weight_decay': opt_config.get('weight_decay', 0),
+                  'warmup_steps': opt_config.get('warmup_steps', 0),
+                  }
     else:
         raise KeyError(f"Unknown optimizer name {name}.")
         
@@ -154,26 +173,21 @@ def get_scheduler(config: dict, opt: torch.optim.Optimizer) -> torch.optim.lr_sc
     """
     # if not specified, use constant step sizes
     name = config.get('lr_schedule', 'constant')
-
-    # default is to step scheduler end of epoch
-    # but with this arg we can step scheduler after each step
-    step_on_epoch = not config.get('stepwise_schedule')
-
-    warmup_steps = config.get('warmup_steps', 0)
     
-    # value is multiplied with initial lr in all cases
     if name == 'constant':
-        #lr_fun = lambda t:  warmup_lr + (1-warmup_lr)*t/warmup_steps if t < warmup_steps else 1
-        lr_fun = lambda t: 1
+        lr_fun = lambda epoch: 1 # this value is multiplied with initial lr
+        scheduler = LambdaLR(opt, lr_lambda=lr_fun)
+    
+    elif name == 'linear':
+        lr_fun = lambda epoch: 1/(epoch+1) # this value is multiplied with initial lr
         scheduler = LambdaLR(opt, lr_lambda=lr_fun)
         
     elif name == 'sqrt':
-        #lr_fun = lambda t: warmup_lr + (1-warmup_lr)*t/warmup_steps if t < warmup_steps else (t-warmup_steps+1)**(-1/2)
-        lr_fun = lambda t: (t+1)**(-1/2)
+        lr_fun = lambda epoch: (epoch+1)**(-1/2) # this value is multiplied with initial lr
         scheduler = LambdaLR(opt, lr_lambda=lr_fun)
         
     elif 'exponential' in name:
-        # use sth like 'exponential_60_0.5': decay by factor 0.5 every 60 epochs/steps
+        # use sth like 'exponential_60_0.5': decay by factor 0.5 every 60 epochs
         step_size = int(name.split('_')[1])
         gamma = float(name.split('_')[2])
         scheduler = StepLR(opt, step_size=step_size, gamma=gamma)
@@ -181,10 +195,4 @@ def get_scheduler(config: dict, opt: torch.optim.Optimizer) -> torch.optim.lr_sc
     else:
         raise ValueError(f"Unknown learning rate schedule name {name}.")
     
-    if warmup_steps > 0:
-        warmup_lr = 1e-10
-        _warmup = lambda t: warmup_lr + (1-warmup_lr)*t/warmup_steps
-        warmup_scheduler = LambdaLR(opt, lr_lambda=_warmup)
-        scheduler = SequentialLR(opt, [warmup_scheduler, scheduler], milestones=[warmup_steps])
-
-    return scheduler, step_on_epoch
+    return scheduler

@@ -6,12 +6,13 @@ import numpy as np
 import copy
 import itertools
 import os
-from typing import Union, Optional, Tuple
+from typing import Union
 import warnings
 from pandas.api.types import is_numeric_dtype
 
 from .log import Container
 from .defaults import DEFAULTS
+
 
 
 SCORE_NAMES = {'train_loss': 'Training loss', 
@@ -21,9 +22,9 @@ SCORE_NAMES = {'train_loss': 'Training loss',
                'model_norm': r'$\|x^k\|$',
                'grad_norm': r'$\|g_k\|$',
                'fstar': r'$f_*^k$'
-}
+               }
 
-AES = { 'sgd':              {'color': "#f68427", 'markevery': 15, 'zorder': 7},
+AES = { 'sgd':              {'color': '#7fb285', 'markevery': 15, 'zorder': 7},
         'sgd-m':            {'color': '#de9151', 'markevery': 8, 'zorder': 8},
         'adam':             {'color': '#f34213', 'markevery': 10, 'zorder': 9}, 
         'adamw':            {'color': '#f34213', 'markevery': 10, 'zorder': 9},
@@ -36,13 +37,16 @@ AES = { 'sgd':              {'color': "#f68427", 'markevery': 15, 'zorder': 7},
         'adabound':         {'color': '#4f9d69', 'markevery': 10, 'zorder': 5},
         'lion':             {'color': '#dbabab', 'markevery': 10, 'zorder': 4},
         'default':          {'color': 'grey','markevery': 3, 'zorder': 1},
-}
+        }
 
 # more colors:
-#7fb285
+#F7CE5B
+#4FB0C6
+#648381
+#F7B801
+#7ea2aa
 
 ALL_MARKER = ('o', 'v', 'H', 's', '>', '<' , '^', 'D', 'x')
-nan_mean_fun = lambda x: x.mean(skipna=False)
 
 class Record:
     def __init__(self, 
@@ -79,41 +83,30 @@ class Record:
         self.base_df = self._build_base_df(agg='mean')
         return
     
-    def filter(self, drop=dict(), keep=dict(), any=False):
-        """Filter out by columns in id_df. 
-        
-        if all=True:
-         * Drops if any condition is true.
-         * Keeps if all conditions are true.
-        if all=False:
-         * Drops if all conditions are true.
-         * Keeps if any conditions is true.        
-
-        For example, use drop={'name': 'adam'} to drop all results from Adam. 
+    def filter(self, drop=dict(), keep=dict()):
+        """Filter out by columns in id_df. Drops if any condition is true.
+        For example, use exclude = {'name': 'adam'} to drop all results from Adam. 
         
         NOTE: This overwrites the base_df and id_df object.
         """
         all_ix = list()
 
-        for k, v in drop.items():
+        for k,v in drop.items():
             if not isinstance(v, list):
                 v = [v] # if single value is given convert to list
             
             ix = ~self.id_df[k].isin(v) # indices to drop --> negate
             all_ix.append(ix)
 
-        for k, v in keep.items():
+        for k,v in keep.items():
             if not isinstance(v, list):
                 v = [v] # if single value is given convert to list
             
             ix = self.id_df[k].isin(v) # indices to keep
             all_ix.append(ix)
 
-        if not any:
-            ixx = pd.concat(all_ix, axis=1).all(axis=1) # keep where all True
-        else:
-            ixx = pd.concat(all_ix, axis=1).any(axis=1) # keep where any True
-            
+        ixx = pd.concat(all_ix, axis=1).all(axis=1) # keep where all True
+
         ids_to_keep = ixx.index[ixx.values]
 
         self.base_df = self.base_df[self.base_df.id.isin(ids_to_keep)]
@@ -138,41 +131,12 @@ class Record:
                 
             this_df['id'] = ':'.join(id) # identifier given by all opt specifications
             this_df['run_id'] = r['config']['run_id'] # differentiating multiple runs
-
-            # convert step-wise logs to series
-            # pandas has a bug that we cannot insert a series into this_df.loc[row_ix, ..]
-            # but we can insert into row, so we concat the modified rows
-            if 'step_logs' in this_df.columns:
-                HAVE_STEPWISE_LR = bool(opt_dict.get("stepwise_schedule"))
-
-                # some sanity checks/warnings
-                if HAVE_STEPWISE_LR and not ("stepwise_lr" not in this_df.columns):
-                    warnings.warn(f"ID {id}: Expected stepwise LR log, but none found. This might cause errors in analysis.")
-                if not HAVE_STEPWISE_LR and ("stepwise_lr" in this_df.columns):
-                    warnings.warn(f"ID {id}: Found stepwise LR log, but no stepwise LR scheduling. Will be overwritten.")
-                    
-                new_rows = list()
-                for row_ix, row in this_df.iterrows():
-                    for k, v in row['step_logs'].items():
-                        row['stepwise_' + k] = pd.Series(v, name=k)
-                    
-                    # reconstruct when no stepwise LR scheduling
-                    if not HAVE_STEPWISE_LR:
-                        # use step indices from last item, and ffill the learning rate from this epoch
-                        _reconstructed_lr = dict(zip(v.keys(), row['learning_rate'] * np.ones(len(v))))
-                        row['stepwise_lr'] = pd.Series(_reconstructed_lr, name='lr')
-                
-                    new_rows.append(row)
-                
-                this_df = pd.DataFrame(new_rows)
-                this_df = this_df.drop(columns=['step_logs'])
-
             df_list.append(this_df)
             
-        df = pd.concat(df_list)
-        df.insert(0, 'id', df.pop('id')) # move id column to front
+        df = pd.concat(df_list)   
         df = df.reset_index(drop=True)
-        
+        df.insert(0, 'id', df.pop('id')) # move id column to front
+
         # raise error if duplicates
         if df.duplicated(subset=['id', 'epoch', 'run_id']).any():
             raise KeyError("There seem to be duplicates (by id, epoch, run_id). Please check the output data.")
@@ -197,22 +161,11 @@ class Record:
         
         # compute mean for each id and(!) epoch
         if agg == 'mean':
-            # Create an aggregation dictionary first
-            # 1) if column numeric, take mean
-            # 2) for stepwise logs, each element is a series --> use custom function
-            # 3) else take first (e.g. for step_size_list)
-            agg_dict = dict()
-            for c in raw_df.columns:
-                if c in ["id", "epoch"]:
-                    continue
-                if is_numeric_dtype(raw_df[c]):
-                    agg_dict[c] = nan_mean_fun
-                elif isinstance(raw_df[c][0], pd.Series):
-                    agg_dict[c] = average_series_and_wrap
-                else:
-                    agg_dict[c] = "first"
-        
-            self._base_df_agg_dict = agg_dict
+            # if column numeric, take mean else take first
+            nan_mean_fun = lambda x: x.mean(skipna=False)
+            agg_dict = dict([(c, nan_mean_fun) if is_numeric_dtype(raw_df[c]) else (c, 'first') for c in raw_df.columns])
+            agg_dict.pop('id')
+            agg_dict.pop('epoch')
 
             df = raw_df.groupby(['id', 'epoch'], sort=False).agg(agg_dict).drop('run_id',axis=1)
             
@@ -222,7 +175,7 @@ class Record:
             df2 = raw_df.groupby(['id', 'epoch'], sort=False)[std_columns].std().drop('run_id',axis=1)           
             df2.columns = [c+'_std' for c in df2.columns]
             
-            df = pd.concat([df,df2], axis=1)
+            df = pd.concat([df,df2], axis=1) 
             df = df.reset_index(level=-1) # moves epoch out of index
             
         elif agg == 'first':
@@ -236,12 +189,7 @@ class Record:
         
         return df
     
-    def build_sweep_df(self,
-                       score: str='val_score',
-                       xaxis: str='lr',
-                       ignore_columns: list=list(),
-                       cutoff: Optional[Tuple]=None
-        ):
+    def build_sweep_df(self, score='val_score', xaxis='lr', ignore_columns=list(), cutoff=None):
 
         base_df = self.base_df.copy()
         id_df = self.id_df.copy()
@@ -253,8 +201,7 @@ class Record:
         if cutoff is None:
             cutoff_epoch = (max_epoch[0], max_epoch[0])
         else:
-            assert len(cutoff) == 2, f"Cutoff needs to be tuple (len 2), but is given as {cutoff}."
-            cutoff_epoch = (cutoff[0], cutoff[1])
+            cutoff_epoch = (cutoff, max_epoch[0])
 
         # filter epochs
         sub_df = base_df[(base_df.epoch >= cutoff_epoch[0])
@@ -383,28 +330,7 @@ class Record:
         fig.tight_layout()
         return fig, ax
 
-def average_series_by_index(series_of_series):
-    """
-    Aggregates a Series of Series by averaging values at overlapping indices.
-
-    Args:
-        series_of_series: A pandas Series where each element is itself a pandas Series.
-                          This is what a groupby().agg() operation passes to the function.
-    Returns:
-        A single pandas Series with the aggregated and averaged values.
-    """
-    concatenated_series = pd.concat(list(series_of_series))
-    avg_series = concatenated_series.groupby(concatenated_series.index).mean()
-    return avg_series
-
-def average_series_and_wrap(series_of_series):
-    """
-    This is on ly a trick as .agg() insert a list, and not a Series.
-    Thanks to Gemini.
-    """
-    result_series = average_series_by_index(series_of_series)
-    return [result_series]
-
+    
 def id_to_dict(id):
     """utility for creating a dictionary from the identifier"""
     tmp = id.split(':')

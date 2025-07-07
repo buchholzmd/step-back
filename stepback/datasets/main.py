@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 from .cifar import get_cifar10, get_cifar100
 from .mnist import get_mnist
 from .synthetic import get_synthetic_matrix_fac, get_synthetic_linear
-from .libsvm import LIBSVM_NAMES, get_libsvm
+from .libsvm import LIBSVM_NAME_MAP, get_libsvm
 from .sensor import get_sensor
 from .imagenet32 import get_imagenet32
 from .imagenet import get_imagenet
@@ -65,7 +65,7 @@ def get_dataset(config: dict, split: str, seed: int, path: str) -> DataClass:
     
         ds = get_synthetic_linear(classify=classify, split=split, seed=seed, **kwargs)
     
-    elif name in LIBSVM_NAMES:
+    elif name in LIBSVM_NAME_MAP.keys():
         ds = get_libsvm(split=split, name=name, path=path, **kwargs)
 
     elif name == 'imagenet32':
