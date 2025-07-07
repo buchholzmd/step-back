@@ -1,9 +1,0 @@
-torch
-torchvision
-scikit-learn
-pandas
-numpy
-matplotlib
-seaborn
-tqdm
-einops
