@@ -9,8 +9,8 @@ from .sps import SPS
 from .adabound import AdaBoundW
 from .adabelief import AdaBelief
 from .lion import Lion
-from .schedule_free import SGDScheduleFree
-from .schedulet import SGDSchedulet
+from .schedule_free import SGDScheduleFree, AdamWScheduleFree
+from .schedulet import SGDSchedulet, AdamWSchedulet
 
 def get_optimizer(opt_config: dict) -> Tuple[torch.optim.Optimizer, dict]:
     """
@@ -155,6 +155,7 @@ def get_optimizer(opt_config: dict) -> Tuple[torch.optim.Optimizer, dict]:
                   'r': opt_config.get('r', 0),
                   'weight_lr_power': opt_config.get('weight_lr_power', 2.0),
                   }
+
     elif name == 'schedulet':
         opt_obj = SGDSchedulet
         hyperp = {'lr': opt_config.get('lr', 1.0),
@@ -162,10 +163,53 @@ def get_optimizer(opt_config: dict) -> Tuple[torch.optim.Optimizer, dict]:
                   'weight_decay': opt_config.get('weight_decay', 0),
                   'warmup_steps': opt_config.get('warmup_steps', 0),
                   }
+
+    elif name == 'schedule-free-adam':
+        opt_obj = AdamWScheduleFree
+        hyperp = {'lr': opt_config.get('lr', 0.0025),
+                  'betas': opt_config.get('betas', (0.9, 0.999)),
+                  'eps': opt_config.get('eps', 1e-8),
+                  'weight_decay': opt_config.get('weight_decay', 0),
+                  'warmup_steps': opt_config.get('warmup_steps', 0),
+                  'r': opt_config.get('r', 0),
+                  'weight_lr_power': opt_config.get('weight_lr_power', 2.0),
+                  }
+
+    elif name == 'schedulet-adam':
+        opt_obj = AdamWSchedulet
+        hyperp = {'lr': opt_config.get('lr', 0.0025),
+                  'betas': opt_config.get('betas', (0.9, 0.999)),
+                  'eps': opt_config.get('eps', 1e-8),
+                  'weight_decay': opt_config.get('weight_decay', 0),
+                  'warmup_steps': opt_config.get('warmup_steps', 0),
+                  }
     else:
         raise KeyError(f"Unknown optimizer name {name}.")
         
     return opt_obj, hyperp
+
+def get_wsd_lambda(warmup, cooldown, total_epochs):
+    assert(0.0 < warmup < 1.0)
+    assert(0.0 < cooldown < 1.0)
+    assert(warmup + cooldown <= 1.0)
+
+    warmup_epochs = int(warmup * total_epochs)
+    decay_epochs = int(cooldown * total_epochs)
+    stable_epochs = total_epochs - warmup_epochs - decay_epochs
+
+    def lr_lambda(epoch):
+        if epoch < warmup_epochs:
+            # Linear warmup: from 0 to 1
+            return (epoch + 1) / warmup_epochs
+        elif epoch < warmup_epochs + stable_epochs:
+            # Stable: LR = base LR
+            return 1.0
+        else:
+            # Linear decay: from 1 to 0
+            decay_epoch = epoch - (warmup_epochs + stable_epochs)
+            return max(0.0, 1.0 - decay_epoch / decay_epochs)
+    
+    return lr_lambda
 
 def get_scheduler(config: dict, opt: torch.optim.Optimizer) -> torch.optim.lr_scheduler._LRScheduler:
     """
@@ -191,6 +235,14 @@ def get_scheduler(config: dict, opt: torch.optim.Optimizer) -> torch.optim.lr_sc
         step_size = int(name.split('_')[1])
         gamma = float(name.split('_')[2])
         scheduler = StepLR(opt, step_size=step_size, gamma=gamma)
+
+    elif 'wsd' in name:
+        warmup = config.get('warmup', 0.0)
+        cooldown = config.get('cooldown', 0.0)
+        total_epochs = config.get('max_epoch', 100)
+
+        lr_fun = get_wsd_lambda(warmup=warmup, cooldown=cooldown, total_epochs=total_epochs)
+        scheduler = LambdaLR(opt, lr_lambda=lr_fun)
         
     else:
         raise ValueError(f"Unknown learning rate schedule name {name}.")

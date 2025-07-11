@@ -1,0 +1,17 @@
+{
+    "dataset": "cifar100",
+    "model": "resnet110",
+    "model_kwargs": {"batch_norm": true},
+    "loss_func": "cross_entropy",
+    "score_func": "cross_entropy_accuracy",
+    "opt": [{"name": "sgd-m", "lr": [0.001, 0.01, 0.1, 1, 2.5], "weight_decay": 0, "momentum": 0.9, "dampening": 0.9, "lr_schedule": "constant"},
+            {"name": "schedule-free", "lr": [0.001, 0.01, 0.1, 1, 2.5], "lr_schedule": "constant"},
+            {"name": "schedulet", "lr": [0.001, 0.01, 0.1, 1, 2.5], "lr_schedule": "wsd", "warmup": 0.3, "cooldown": 0.3},
+            {"name": "adamw", "lr": [0.000001, 0.00001, 0.0001, 0.001, 0.01, 0.1, 1], "weight_decay": 0, "momentum": 0.9, "dampening": 0.9, "lr_schedule": "constant"},
+            {"name": "schedule-free-adam", "lr": [0.000001, 0.00001, 0.0001, 0.001, 0.01, 0.1, 1], "lr_schedule": "constant"},
+            {"name": "schedulet-adam", "lr": [0.000001, 0.00001, 0.0001, 0.001, 0.01, 0.1, 1], "lr_schedule": "wsd", "warmup": 0.3, "cooldown": 0.3}
+        ],
+    "batch_size": 128,
+    "max_epoch": 100,
+    "n_runs": 3
+    }

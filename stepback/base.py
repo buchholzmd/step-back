@@ -152,6 +152,7 @@ class Base:
         self.training_loss = Loss(name=self.config['loss_func'], backwards=True)
         
         #============ Optimizer ============
+        self.config['opt']['max_epoch'] = self.config.get('max_epoch', 100)
         opt_obj, hyperp = get_optimizer(self.config['opt'])
         
         self._init_opt(opt_obj, hyperp)
