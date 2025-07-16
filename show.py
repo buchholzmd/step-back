@@ -42,56 +42,76 @@ plt.rc('text', usetex=True)
 
 #%%
 R = Record(output_names)
+R.filter(keep={'lr_schedule': 'constant', 'lr_schedule': 'wsd'})
 
-R.filter(drop={'name': ['momo-adam-star', 'momo-star']})
-R.filter(drop={'name': ['adabelief', 'adabound', 'lion', 'prox-sps']}) 
+# R.filter(drop={'name': ['momo-adam-star', 'momo-star']})
+# R.filter(drop={'name': ['adabelief', 'adabound', 'lion', 'prox-sps']}) 
 # R.filter(keep={'lr_schedule': 'constant'}) 
-R.filter(keep={'lr_schedule': 'constant', 'lr_schedule': 'wsd'})                         # only show constant learning rate results
 
 
-base_df = R.base_df                                 # base dataframe for all plots
-id_df = R.id_df                                     # dataframe with the optimizer setups that were run
+R = Record(output_names)
+R.filter(keep={'lr_schedule': 'constant', 'lr_schedule': 'wsd'})
 
-# _ = R.plot_metric(s='val_score', log_scale=False, legend=True)
+# R.filter(drop={'name': ['momo-adam-star', 'momo-star']})
+# R.filter(drop={'name': ['adabelief', 'adabound', 'lion', 'prox-sps']}) 
+# R.filter(keep={'lr_schedule': 'constant'})
 
-#%% plot training curves for a subset of runs:
+# R.filter(drop={'name': ['adamw', 'schedule-free-adam', 'schedulet-adam']})
+# R.filter(drop={'name': ['sgd-m', 'schedule-free', 'schedulet']})
 
-# takes 3 best runs per methods
-best = base_df[base_df.epoch==base_df.epoch.max()].groupby('name')['val_score'].nlargest(3)
-#best = base_df[base_df.epoch==base_df.epoch.max()].groupby('name')['train_loss'].nsmallest(3)
-ixx = base_df.id[best.index.levels[1]]
-df1 = base_df.loc[base_df.id.isin(ixx),:]
+keep_list = {
+    'sgd':  {'name': ['sgd-m', 'schedule-free', 'schedulet']},
+    'adam': {'name': ['adamw', 'schedule-free-adam', 'schedulet-adam']}
+}
 
-# y0 = 0.3 if 'cifar100_resnet110' in exp_id else 0.4 if 'cifar10_vit' in exp_id else 0.75
-y0 = 0.9 * df1['val_score'].min()
+for k in keep_list.keys():
+    R_opt = R.copy()
 
-fig, ax = R.plot_metric(df=df1, 
-                        s='val_score', 
-                        ylim=(y0, 1.05*df1.val_score.max()), 
-                        log_scale=False, 
-                        figsize=FIGSIZE, 
-                        legend=False,
-                        legend_loc=LEGEND_LOC,
-                        legend_outside=LEGEND_OUTSIDE,
-                        )
-fig.subplots_adjust(top=0.975,bottom=0.16,left=0.16,right=0.975)
+    R_opt.filter(keep=keep_list[k])
 
-os.makedirs('output/plots/' + exp_id, exist_ok=True)
+    base_df = R_opt.base_df                                 # base dataframe for all plots
+    id_df = R_opt.id_df                                     # dataframe with the optimizer setups that were run
 
-if save:
-    fig.savefig('output/plots/' + exp_id + f'/all_val_score.pdf')
+    # _ = R.plot_metric(s='val_score', log_scale=False, legend=True)
 
-fig, ax = R.plot_metric(df=df1, 
-                        s='train_loss', 
-                        log_scale=True, 
-                        figsize=FIGSIZE, 
-                        legend=False,
-                        legend_loc=LEGEND_LOC,
-                        legend_outside=LEGEND_OUTSIDE,
-                        )
-fig.subplots_adjust(top=0.975,bottom=0.16,left=0.17,right=0.975)
-if save:
-    fig.savefig('output/plots/' + exp_id + f'/all_train_loss.pdf')
+    #%% plot training curves for a subset of runs:
+
+    # takes 3 best runs per methods
+    best = base_df[base_df.epoch==base_df.epoch.max()].groupby('name')['val_score'].nlargest(3)
+    #best = base_df[base_df.epoch==base_df.epoch.max()].groupby('name')['train_loss'].nsmallest(3)
+    ixx = base_df.id[best.index.levels[1]]
+    df1 = base_df.loc[base_df.id.isin(ixx),:]
+
+    # y0 = 0.3 if 'cifar100_resnet110' in exp_id else 0.4 if 'cifar10_vit' in exp_id else 0.75
+    y0 = 0.9 * df1['val_score'].min()
+
+    fig, ax = R_opt.plot_metric(df=df1, 
+                                s='val_score', 
+                                ylim=(y0, 1.05*df1.val_score.max()), 
+                                log_scale=False, 
+                                figsize=FIGSIZE, 
+                                legend=False,
+                                legend_loc=LEGEND_LOC,
+                                legend_outside=LEGEND_OUTSIDE,
+                                )
+    fig.subplots_adjust(top=0.975,bottom=0.16,left=0.16,right=0.975)
+
+    os.makedirs('output/plots/' + exp_id, exist_ok=True)
+
+    if save:
+        fig.savefig('output/plots/' + exp_id + f'/all_val_score_{k}.pdf')
+
+    fig, ax = R_opt.plot_metric(df=df1, 
+                                s='train_loss', 
+                                log_scale=True, 
+                                figsize=FIGSIZE, 
+                                legend=False,
+                                legend_loc=LEGEND_LOC,
+                                legend_outside=LEGEND_OUTSIDE,
+                                )
+    fig.subplots_adjust(top=0.975,bottom=0.16,left=0.17,right=0.975)
+    if save:
+        fig.savefig('output/plots/' + exp_id + f'/all_train_loss_{k}.pdf')
 
 
 #%% stability plots

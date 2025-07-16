@@ -51,6 +51,11 @@ class Record:
         self.id_df = self._build_id_df()
         self.base_df = self._build_base_df(agg='mean')
         return
+
+    def copy(self):
+        """Make a copy of the current record
+        """
+        return copy.deepcopy(self)
     
     def filter(self, drop=dict(), keep=dict()):
         """Filter out by columns in id_df. Drops if any condition is true.

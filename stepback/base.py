@@ -62,8 +62,10 @@ class Base:
         
         if torch.cuda.is_available():
             self.device = torch.device(device)
+            self.pin_memory = True
         else:
             self.device = torch.device('cpu')
+            self.pin_memory = False
             
         print("Using device: ", self.device)
         
@@ -114,7 +116,9 @@ class Base:
         _gen.manual_seed(self.run_seed)
         self.train_loader = DataLoader(self.train_set, drop_last=True, shuffle=True, generator=_gen,
                                        batch_size=self.config['batch_size'],
-                                       num_workers=self.num_workers)
+                                       num_workers=self.num_workers,
+                                       pin_memory=self.pin_memory
+        )
         
         return
 
@@ -207,11 +211,11 @@ class Base:
                 
                 train_dict = self.evaluate(self.train_set, 
                                            metric_dict = metric_dict,
-                                           )  
+                                           )
             
                 val_dict = self.evaluate(self.val_set, 
                                          metric_dict = metric_dict,
-                                         )                     
+                                         )             
                        
                 # Record metrics
                 score_dict.update(train_dict)
@@ -247,6 +251,7 @@ class Base:
                 
         self.model.train()
         if 'schedule' in type(self.opt).__name__.lower():
+            print("Opt in train mode!")
             self.opt.train()
 
         pbar = tqdm.tqdm(self.train_loader, disable=(not self.verbose))
@@ -302,13 +307,15 @@ class Base:
         # create temporary DataLoader
         dl = torch.utils.data.DataLoader(dataset, drop_last=False, 
                                          batch_size=self.config['batch_size'],
-                                         num_workers=self.num_workers
+                                         num_workers=self.num_workers,
+                                         pin_memory=self.pin_memory
                                          )
         pbar = tqdm.tqdm(dl, disable=(not self.verbose))
         
         self.model.eval()
 
         if 'schedule' in type(self.opt).__name__.lower():
+            print("Opt in eval mode!")
             self.opt.eval()
 
         score_dict = dict(zip(metric_dict.keys(), np.zeros(len(metric_dict))))
