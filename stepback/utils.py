@@ -15,6 +15,45 @@ from sklearn.linear_model import Ridge, LogisticRegression
 from .log import Container
 from .config import ConfigManager
 
+SCORE_NAMES = {'train_loss': 'Training loss', 
+               'val_loss': 'Validation loss', 
+               'train_score': 'Training score', 
+               'val_score': 'Validation score',
+               'model_norm': r'$\|x^k\|$',
+               'grad_norm': r'$\|g_k\|$',
+               'fstar': r'$f_*^k$'
+               }
+
+AES = { 'sgd':                  {'color': '#7fb285', 'markevery': 15, 'zorder': 7},
+        'sgd-m':                {'color': '#de9151', 'markevery': 8, 'zorder': 8},
+        'adam':                 {'color': '#f34213', 'markevery': 10, 'zorder': 9}, 
+        'adamw':                {'color': '#f34213', 'markevery': 10, 'zorder': 9},
+        'momo':                 {'color': '#023047', 'markevery': 5, 'zorder': 11},
+        'momo-adam':            {'color': '#3F88C5', 'markevery': 6, 'zorder': 10},
+        'momo-star':            {'color': '#87b37a', 'markevery': 3, 'zorder': 13},
+        'momo-adam-star':       {'color': '#648381', 'markevery': 4, 'zorder': 12},
+        'prox-sps':             {'color': '#97BF88', 'markevery': 7, 'zorder': 6},
+        'adabelief':            {'color': '#FFBF46', 'markevery': 10, 'zorder': 6},
+        'adabound':             {'color': '#4f9d69', 'markevery': 10, 'zorder': 5},
+        'lion':                 {'color': '#dbabab', 'markevery': 10, 'zorder': 4},
+        'schedule-free':        {'color': '#8e44ad', 'markevery': 10, 'zorder': 14},
+        'schedule-free-adam':   {'color': '#ff14fb', 'markevery': 5, 'zorder': 15},
+        'schedulet':            {'color': '#16a085', 'markevery': 10, 'zorder': 16},
+        'schedulet-adam':       {'color': '#3498db', 'markevery': 5, 'zorder': 17},
+        'default':              {'color': 'grey','markevery': 3, 'zorder': 1},
+        }
+
+# more colors:
+#F7CE5B
+#4FB0C6
+#648381
+#F7B801
+#7ea2aa
+#8e44ad
+#ff14fb
+#16a085
+#3498db
+
 #%%
 """
 Utility functions for managing output files.
@@ -305,3 +344,19 @@ def logreg_opt_value(X, y, lmbda, fit_intercept=False):
     t1 = lmbda/2 * np.linalg.norm(sol)**2
 
     return t1+t2
+
+def id_to_dict(id):
+    """utility for creating a dictionary from the identifier"""
+    tmp = id.split(':')
+    d = dict([j.split('=') for j in tmp])
+    return d
+
+
+def create_label(id, subset=None):
+    d = id_to_dict(id)
+    if subset is None:
+        s = [key_to_math(k) +'='+ v for k,v in d.items()]
+    else:
+        s = [key_to_math(k) +'='+ v for k,v in d.items() if k in subset]
+        
+    return ', '.join(s)

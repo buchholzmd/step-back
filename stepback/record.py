@@ -12,39 +12,8 @@ from pandas.api.types import is_numeric_dtype
 
 from .log import Container
 from .defaults import DEFAULTS
-
-
-
-SCORE_NAMES = {'train_loss': 'Training loss', 
-               'val_loss': 'Validation loss', 
-               'train_score': 'Training score', 
-               'val_score': 'Validation score',
-               'model_norm': r'$\|x^k\|$',
-               'grad_norm': r'$\|g_k\|$',
-               'fstar': r'$f_*^k$'
-               }
-
-AES = { 'sgd':              {'color': '#7fb285', 'markevery': 15, 'zorder': 7},
-        'sgd-m':            {'color': '#de9151', 'markevery': 8, 'zorder': 8},
-        'adam':             {'color': '#f34213', 'markevery': 10, 'zorder': 9}, 
-        'adamw':            {'color': '#f34213', 'markevery': 10, 'zorder': 9},
-        'momo':             {'color': '#023047', 'markevery': 5, 'zorder': 11},
-        'momo-adam':        {'color': '#3F88C5', 'markevery': 6, 'zorder': 10},
-        'momo-star':        {'color': '#87b37a', 'markevery': 3, 'zorder': 13},
-        'momo-adam-star':   {'color': '#648381', 'markevery': 4, 'zorder': 12},
-        'prox-sps':         {'color': '#97BF88', 'markevery': 7, 'zorder': 6},
-        'adabelief':        {'color': '#FFBF46', 'markevery': 10, 'zorder': 6},
-        'adabound':         {'color': '#4f9d69', 'markevery': 10, 'zorder': 5},
-        'lion':             {'color': '#dbabab', 'markevery': 10, 'zorder': 4},
-        'default':          {'color': 'grey','markevery': 3, 'zorder': 1},
-        }
-
-# more colors:
-#F7CE5B
-#4FB0C6
-#648381
-#F7B801
-#7ea2aa
+from .plotting import set_plot_aesthetics, do_fancy_legend
+from .utils import SCORE_NAMES, AES, id_to_dict, create_label
 
 ALL_MARKER = ('o', 'v', 'H', 's', '>', '<' , '^', 'D', 'x')
 
@@ -261,8 +230,19 @@ class Record:
             self.aes[m]['marker_cycle'] = itertools.cycle(ALL_MARKER)  
         return
     
-    def plot_metric(self, s, df=None, log_scale=False, ylim=None, legend=True, figsize=(4,4), ax=None):
-        
+    def plot_metric(self, 
+                    s, 
+                    df=None, 
+                    log_scale=False, 
+                    ylim=None, 
+                    legend=True, 
+                    figsize=(4,4), 
+                    ax=None, 
+                    legend_loc='center left', 
+                    legend_outside=False
+                    ):
+        set_plot_aesthetics()
+
         if df is None:
             df = self.base_df.copy()
         
@@ -281,21 +261,28 @@ class Record:
         else:
             alpha = .65
             markersize = 4
-            
-            
+        
+        lr_max = float(df['lr'].max())
+        lr_min = float(df['lr'].min())
+        lr_diff = lr_max - lr_min
+
         for m in df.id.unique():
             this_df = df[df.id==m]
             x = this_df.loc[:,'epoch']
             y = this_df.loc[:,s]
             conf = id_to_dict(m) 
             
+            lr = conf['lr']
+
             # construct label
-            label = conf['name'] + ', ' + r'$\alpha_0=$' + conf['lr']
+            label = conf['name'] + ', ' + r'$\alpha_0=$' + lr
             for k,v in conf.items():
                 if k in ['name', 'lr']:
                     continue
                 label += ', ' + k + '=' + str(v)
-            
+
+            alpha_norm = (float(lr) - lr_min) / lr_diff
+            alpha = 0.5 * alpha_norm + 0.5
             # plot
             if not y.isna().all():
                 names_legend.append(conf['name'])
@@ -319,33 +306,22 @@ class Record:
         if ylim:
             ax.set_ylim(ylim)
         
+        labels = df['name'].unique().tolist()
+        color_list = [[self.aes.get(n, self.aes['default'])['color']] for n in labels]
+
+        bbox_to_anchor = (1, 0.5) if legend_outside else None
+        do_fancy_legend(ax, labels, color_list, loc=legend_loc, bbox_to_anchor=bbox_to_anchor)
+        # fig.subplots_adjust(right=0.85)  # Add this line
         # full legend or only solver names
-        if legend:
-            ax.legend(fontsize=8, loc='lower left').set_zorder(100)
-        else:
-            names_legend = set(names_legend)
-            handles = [Line2D([0], [0], color=self.aes.get(n, self.aes['default']).get('color'), lw=4) for n in names_legend]
-            ax.legend(handles, names_legend, loc='lower left').set_zorder(100)
+        # if legend:
+        #     ax.legend(fontsize=8, loc='lower left').set_zorder(100)
+        # else:
+        #     names_legend = set(names_legend)
+        #     handles = [Line2D([0], [0], color=self.aes.get(n, self.aes['default']).get('color'), lw=4) for n in names_legend]
+        #     ax.legend(handles, names_legend, loc='lower left').set_zorder(100)
 
         fig.tight_layout()
         return fig, ax
-
-    
-def id_to_dict(id):
-    """utility for creating a dictionary from the identifier"""
-    tmp = id.split(':')
-    d = dict([j.split('=') for j in tmp])
-    return d
-
-
-def create_label(id, subset=None):
-    d = id_to_dict(id)
-    if subset is None:
-        s = [key_to_math(k) +'='+ v for k,v in d.items()]
-    else:
-        s = [key_to_math(k) +'='+ v for k,v in d.items() if k in subset]
-        
-    return ', '.join(s)
 
 def key_to_math(k):
     """translates column names from id_dict to math symbol"""

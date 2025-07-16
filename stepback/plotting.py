@@ -1,4 +1,7 @@
 from matplotlib import pyplot as plt
+from matplotlib.lines import Line2D
+from matplotlib.collections import LineCollection
+from matplotlib.legend_handler import HandlerLineCollection
 import seaborn as sns
 import pandas as pd
 import numpy as np
@@ -6,7 +9,90 @@ import itertools
 from ast import literal_eval as make_tuple
 import copy
 
-from .record import SCORE_NAMES, id_to_dict, create_label
+from .utils import SCORE_NAMES, AES, id_to_dict, create_label
+
+# Need to know where to call the following:
+## set_plot_aesthetics()
+## do_fancy_legend()
+def set_plot_aesthetics():
+    plt.rcParams["font.family"] = "serif"
+    plt.rcParams['font.size'] = 12
+    plt.rcParams['axes.linewidth'] = 1.5
+    plt.rc('text', usetex=True)
+    plt.rc('legend',fontsize=10)
+
+class HandlerDashedLines(HandlerLineCollection):
+    """
+    Copied from https://matplotlib.org/stable/gallery/text_labels_and_annotations/legend_demo.html
+    Custom Handler for LineCollection instances.
+    """
+    def create_artists(self, legend, orig_handle,
+                       xdescent, ydescent, width, height, fontsize, trans):
+        # figure out how many lines there are
+        numlines = len(orig_handle.get_segments())
+        xdata, xdata_marker = self.get_xdata(legend, xdescent, ydescent,
+                                             width, height, fontsize)
+        leglines = []
+        # divide the vertical space where the lines will go
+        # into equal parts based on the number of lines
+        ydata = np.full_like(xdata, height / (numlines + 1))
+        # for each line, create the line at the proper location
+        # and set the dash pattern
+        for i in range(numlines):
+            legline = Line2D(xdata, ydata * (numlines - i) - ydescent)
+            self.update_prop(legline, orig_handle, legend)
+            # set color, dash pattern, and linewidth to that
+            # of the lines in linecollection
+            try:
+                color = orig_handle.get_colors()[i]
+            except IndexError:
+                color = orig_handle.get_colors()[0]
+            try:
+                dashes = orig_handle.get_dashes()[i]
+            except IndexError:
+                dashes = orig_handle.get_dashes()[0]
+            try:
+                lw = orig_handle.get_linewidths()[i]
+            except IndexError:
+                lw = orig_handle.get_linewidths()[0]
+            if dashes[1] is not None:
+                legline.set_dashes(dashes[1])
+            legline.set_color(color)
+            legline.set_transform(trans)
+            legline.set_linewidth(lw)
+            leglines.append(legline)
+        return leglines
+
+
+def do_fancy_legend(ax, 
+                    labels, 
+                    color_list,
+                    loc='upper right',
+                    bbox_to_anchor=None,
+                    lw=1.0,
+                    handlelength=2.5,
+                    handleheight=3,
+                    n_per_col=3,
+                    **kwargs
+    ):
+    handles = list()
+    for _colors in color_list:
+        line = [[(0, 0)]]
+        handles.append(LineCollection(len(_colors)*line, colors=_colors, linewidths=lw))
+        
+    
+    ax.legend(handles, 
+              labels,
+              loc=loc,
+              bbox_to_anchor=bbox_to_anchor,
+              handler_map={type(handles[0]): HandlerDashedLines()},
+              handlelength=handlelength, 
+              handleheight=handleheight,
+              ncol=np.ceil(len(labels)/n_per_col),
+              **kwargs
+    )
+
+    return
 
 ###################################
 ### STABILITY
@@ -23,7 +109,9 @@ def plot_stability(R,
                    ylim=None, 
                    log_scale=True, 
                    figsize=(6,5), 
-                   save=False
+                   save=False,
+                   legend_loc='center left',
+                   legend_outside=False,
                    ):
     """
     Generates stability plot.
@@ -45,6 +133,7 @@ def plot_stability(R,
         score = [score]
     
 
+    set_plot_aesthetics()
     fig, axs = plt.subplots(len(score),1,figsize=figsize)
 
     for j, s in enumerate(score):
@@ -120,14 +209,20 @@ def plot_stability(R,
         # xlabel only in last row
         if j+1 < len(score):
             ax.set_xlabel('')
-            
-    if legend is not None:
-        # legend has all specific opt arguments
-        fig.legend(fontsize=8, loc='upper right')
-    else:
-        # legend only has name
-        fig.legend(fontsize=11, loc='upper right', 
-                   ncol=min(len(ax.get_legend_handles_labels()[0]),4), columnspacing=0.6)
+    
+    labels =  labels = [n for n in df.index.get_level_values('name').unique()]
+    color_list = [[R.aes.get(n, R.aes['default'])['color']] for n in labels]
+    
+    bbox_to_anchor = (1, 0.5) if legend_outside else None
+    do_fancy_legend(ax, labels, color_list, loc=legend_loc, bbox_to_anchor=bbox_to_anchor)
+    # fig.subplots_adjust(right=0.75)  # Add this line
+    # if legend is not None:
+    #     # legend has all specific opt arguments
+    #     fig.legend(fontsize=8, loc='upper right')
+    # else:
+    #     # legend only has name
+    #     fig.legend(fontsize=11, loc='upper right', 
+    #                ncol=min(len(ax.get_legend_handles_labels()[0]),4), columnspacing=0.6)
 
     fig.tight_layout()
     if legend is not None:

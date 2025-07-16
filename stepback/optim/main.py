@@ -188,27 +188,26 @@ def get_optimizer(opt_config: dict) -> Tuple[torch.optim.Optimizer, dict]:
         
     return opt_obj, hyperp
 
-def get_wsd_lambda(warmup, cooldown, total_epochs):
-    assert(0.0 < warmup < 1.0)
-    assert(0.0 < cooldown < 1.0)
+def get_wsd_lambda(warmup, cooldown, total_steps):
+    assert(0.0 <= warmup <= 1.0)
+    assert(0.0 <= cooldown <= 1.0)
     assert(warmup + cooldown <= 1.0)
 
-    warmup_epochs = int(warmup * total_epochs)
-    decay_epochs = int(cooldown * total_epochs)
-    stable_epochs = total_epochs - warmup_epochs - decay_epochs
+    warmup_steps = int(warmup * total_steps)
+    decay_steps = int(cooldown * total_steps)
+    stable_steps = total_steps - warmup_steps - decay_steps
 
-    def lr_lambda(epoch):
-        if epoch < warmup_epochs:
+    def lr_lambda(step):
+        if step < warmup_steps:
             # Linear warmup: from 0 to 1
-            return (epoch + 1) / warmup_epochs
-        elif epoch < warmup_epochs + stable_epochs:
+            return (step + 1) / warmup_steps
+        elif step <= warmup_steps + stable_steps:
             # Stable: LR = base LR
             return 1.0
         else:
             # Linear decay: from 1 to 0
-            decay_epoch = epoch - (warmup_epochs + stable_epochs)
-            return max(0.0, 1.0 - decay_epoch / decay_epochs)
-    
+            decay_step = step - (warmup_steps + stable_steps)
+            return max(0.0, 1.0 - decay_step / decay_steps)
     return lr_lambda
 
 def get_scheduler(config: dict, opt: torch.optim.Optimizer) -> torch.optim.lr_scheduler._LRScheduler:
@@ -219,19 +218,19 @@ def get_scheduler(config: dict, opt: torch.optim.Optimizer) -> torch.optim.lr_sc
     name = config.get('lr_schedule', 'constant')
     
     if name == 'constant':
-        lr_fun = lambda epoch: 1 # this value is multiplied with initial lr
+        lr_fun = lambda step: 1 # this value is multiplied with initial lr
         scheduler = LambdaLR(opt, lr_lambda=lr_fun)
     
     elif name == 'linear':
-        lr_fun = lambda epoch: 1/(epoch+1) # this value is multiplied with initial lr
+        lr_fun = lambda step: 1/(step+1) # this value is multiplied with initial lr
         scheduler = LambdaLR(opt, lr_lambda=lr_fun)
         
     elif name == 'sqrt':
-        lr_fun = lambda epoch: (epoch+1)**(-1/2) # this value is multiplied with initial lr
+        lr_fun = lambda step: (step+1)**(-1/2) # this value is multiplied with initial lr
         scheduler = LambdaLR(opt, lr_lambda=lr_fun)
         
     elif 'exponential' in name:
-        # use sth like 'exponential_60_0.5': decay by factor 0.5 every 60 epochs
+        # use sth like 'exponential_60_0.5': decay by factor 0.5 every 60 steps
         step_size = int(name.split('_')[1])
         gamma = float(name.split('_')[2])
         scheduler = StepLR(opt, step_size=step_size, gamma=gamma)
@@ -239,9 +238,9 @@ def get_scheduler(config: dict, opt: torch.optim.Optimizer) -> torch.optim.lr_sc
     elif 'wsd' in name:
         warmup = config.get('warmup', 0.0)
         cooldown = config.get('cooldown', 0.0)
-        total_epochs = config.get('max_epoch', 100)
+        total_steps = config['total_steps']
 
-        lr_fun = get_wsd_lambda(warmup=warmup, cooldown=cooldown, total_epochs=total_epochs)
+        lr_fun = get_wsd_lambda(warmup=warmup, cooldown=cooldown, total_steps=total_steps)
         scheduler = LambdaLR(opt, lr_lambda=lr_fun)
         
     else:

@@ -16,6 +16,11 @@ parser = argparse.ArgumentParser(description='Generate step-back plots.')
 parser.add_argument('-i', '--id', nargs='?', type=str, default='test', help="The id of the config (its file name).")
 args = parser.parse_args()
 
+FIGSIZE = (10,6)
+# FIGSIZE = (7,4)
+
+LEGEND_LOC = 'lower left'
+LEGEND_OUTSIDE = False
 
 try:
     exp_id = args.id
@@ -40,7 +45,8 @@ R = Record(output_names)
 
 R.filter(drop={'name': ['momo-adam-star', 'momo-star']})
 R.filter(drop={'name': ['adabelief', 'adabound', 'lion', 'prox-sps']}) 
-R.filter(keep={'lr_schedule': 'constant'})                          # only show constant learning rate results
+# R.filter(keep={'lr_schedule': 'constant'}) 
+R.filter(keep={'lr_schedule': 'constant', 'lr_schedule': 'wsd'})                         # only show constant learning rate results
 
 
 base_df = R.base_df                                 # base dataframe for all plots
@@ -56,9 +62,18 @@ best = base_df[base_df.epoch==base_df.epoch.max()].groupby('name')['val_score'].
 ixx = base_df.id[best.index.levels[1]]
 df1 = base_df.loc[base_df.id.isin(ixx),:]
 
-y0 = 0.3 if exp_id=='cifar100_resnet110' else 0.4 if exp_id=='cifar10_vit' else 0.6
+# y0 = 0.3 if 'cifar100_resnet110' in exp_id else 0.4 if 'cifar10_vit' in exp_id else 0.75
+y0 = 0.9 * df1['val_score'].min()
 
-fig, ax = R.plot_metric(df=df1, s='val_score', ylim=(y0, 1.05*df1.val_score.max()), log_scale=False, figsize=(4,3.5), legend=False)
+fig, ax = R.plot_metric(df=df1, 
+                        s='val_score', 
+                        ylim=(y0, 1.05*df1.val_score.max()), 
+                        log_scale=False, 
+                        figsize=FIGSIZE, 
+                        legend=False,
+                        legend_loc=LEGEND_LOC,
+                        legend_outside=LEGEND_OUTSIDE,
+                        )
 fig.subplots_adjust(top=0.975,bottom=0.16,left=0.16,right=0.975)
 
 os.makedirs('output/plots/' + exp_id, exist_ok=True)
@@ -66,7 +81,14 @@ os.makedirs('output/plots/' + exp_id, exist_ok=True)
 if save:
     fig.savefig('output/plots/' + exp_id + f'/all_val_score.pdf')
 
-fig, ax = R.plot_metric(df=df1, s='train_loss', log_scale=True, figsize=(4,3.5), legend=False)
+fig, ax = R.plot_metric(df=df1, 
+                        s='train_loss', 
+                        log_scale=True, 
+                        figsize=FIGSIZE, 
+                        legend=False,
+                        legend_loc=LEGEND_LOC,
+                        legend_outside=LEGEND_OUTSIDE,
+                        )
 fig.subplots_adjust(top=0.975,bottom=0.16,left=0.17,right=0.975)
 if save:
     fig.savefig('output/plots/' + exp_id + f'/all_train_loss.pdf')
@@ -74,32 +96,58 @@ if save:
 
 #%% stability plots
 
-FIGSIZE = (4.8,3.2)
-
-fig, axs = plot_stability(R, score='val_score', xaxis='lr', sigma=1, legend=None, cutoff=None, figsize=FIGSIZE, save=save)
-fig, axs = plot_stability(R, score='train_loss', xaxis='lr', sigma=1, legend=None, cutoff=None, figsize=FIGSIZE, save=save)
-fig, axs = plot_stability(R, score=['train_loss', 'val_score'], xaxis='lr', sigma=1, legend=None, cutoff=None, figsize=(4.8,6.4), save=save)
-
+fig, axs = plot_stability(R, 
+                          score='val_score', 
+                          xaxis='lr', sigma=1, 
+                          legend=None, 
+                          cutoff=None, 
+                          figsize=FIGSIZE, 
+                          save=save,
+                          legend_loc=LEGEND_LOC,
+                          legend_outside=LEGEND_OUTSIDE
+                        )
+fig, axs = plot_stability(R, 
+                          score='train_loss', 
+                          xaxis='lr', 
+                          sigma=1, 
+                          legend=None, 
+                          cutoff=None, 
+                          figsize=FIGSIZE, 
+                          save=save,
+                          legend_loc=LEGEND_LOC,
+                          legend_outside=LEGEND_OUTSIDE,
+                        )
+fig, axs = plot_stability(R, 
+                          score=['train_loss', 'val_score'], 
+                          xaxis='lr', 
+                          sigma=1, 
+                          legend=None, 
+                          cutoff=None, 
+                          figsize=(FIGSIZE[0],2*FIGSIZE[1]), 
+                          save=save,
+                          legend_loc=LEGEND_LOC,
+                          legend_outside=LEGEND_OUTSIDE,
+                        )
 
 #%% plots the adaptive step size
 ### THIS PLOT IS ONLY RELEVANT FOR METHODS WITH ADAPTIVE STEP SIZE
 ###################################
 
-if exp_id == 'cifar10_resnet20':
-    _ = plot_step_sizes(R, method='momo', grid=(3,3), start=None, stop=None, save=save)
-    _ = plot_step_sizes(R, method='momo-adam', grid=(3,2), start=1, stop=None, save=save)
-elif exp_id == 'cifar10_vgg16':
-    _ = plot_step_sizes(R, method='momo', grid=(3,3), start=2, stop=11, save=save)
-    _ = plot_step_sizes(R, method='momo-adam', grid=(3,3), start=2, stop=11, save=save)
-elif exp_id == 'mnist_mlp':
-    _ = plot_step_sizes(R, method='momo', grid=(3,2), start=1, stop=None, save=save)
-    _ = plot_step_sizes(R, method='momo-adam', grid=(3,2), start=None, stop=None, save=save)
-elif exp_id == 'cifar100_resnet110':
-    _ = plot_step_sizes(R, method='momo', grid=(3,2), start=1, stop=7, save=save)
-    _ = plot_step_sizes(R, method='momo-adam', grid=(3,2), start=1, stop=7, save=save)
-elif exp_id == 'cifar10_vit':
-    _ = plot_step_sizes(R, method='momo', grid=(2,2), start=1, stop=5, save=save)
-    _ = plot_step_sizes(R, method='momo-adam', grid=(2,2), start=None, stop=None, save=save)
+# if 'cifar10_resnet20' in exp_id:
+#     _ = plot_step_sizes(R, method='momo', grid=(3,3), start=None, stop=None, save=save)
+#     _ = plot_step_sizes(R, method='momo-adam', grid=(3,2), start=1, stop=None, save=save)
+# elif 'cifar10_vgg16' in exp_id:
+#     _ = plot_step_sizes(R, method='momo', grid=(3,3), start=2, stop=11, save=save)
+#     _ = plot_step_sizes(R, method='momo-adam', grid=(3,3), start=2, stop=11, save=save)
+# elif 'mnist_mlp' in exp_id:
+#     _ = plot_step_sizes(R, method='momo', grid=(3,2), start=1, stop=None, save=save)
+#     _ = plot_step_sizes(R, method='momo-adam', grid=(3,2), start=None, stop=None, save=save)
+# elif 'cifar100_resnet110' in exp_id:
+#     _ = plot_step_sizes(R, method='momo', grid=(3,2), start=1, stop=7, save=save)
+#     _ = plot_step_sizes(R, method='momo-adam', grid=(3,2), start=1, stop=7, save=save)
+# elif 'cifar10_vit' in exp_id:
+#     _ = plot_step_sizes(R, method='momo', grid=(2,2), start=1, stop=5, save=save)
+#     _ = plot_step_sizes(R, method='momo-adam', grid=(2,2), start=None, stop=None, save=save)
 
 
 # %%

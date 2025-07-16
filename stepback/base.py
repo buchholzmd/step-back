@@ -152,7 +152,7 @@ class Base:
         self.training_loss = Loss(name=self.config['loss_func'], backwards=True)
         
         #============ Optimizer ============
-        self.config['opt']['max_epoch'] = self.config.get('max_epoch', 100)
+        self.config['opt']['total_steps'] = self.config['max_epoch'] * len(self.train_loader)
         opt_obj, hyperp = get_optimizer(self.config['opt'])
         
         self._init_opt(opt_obj, hyperp)
@@ -286,9 +286,8 @@ class Base:
             
             pbar.set_description(f'Training - loss={loss_val:.3f} - time data: last={timings_dataloader[-1]:.3f},(mean={np.mean(timings_dataloader):.3f}) - time model+step: last={timings_model[-1]:.3f}(mean={np.mean(timings_model):.3f})')
 
-
-        # update learning rate             
-        self.sched.step()       
+            # update learning rate             
+            self.sched.step()
 
         return
     
