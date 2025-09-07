@@ -47,16 +47,19 @@ class LambdaLayer(nn.Module):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, in_planes, planes, stride=1, option='A', batch_norm=True):
+    def __init__(self, in_planes, planes, stride=1, option='A', norm='batch_norm'):
         super(BasicBlock, self).__init__()
 
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         
         # use batch norm or not
-        if batch_norm:        
+        if 'batch_norm' in norm:        
             self.bn1 = nn.BatchNorm2d(planes)
             self.bn2 = nn.BatchNorm2d(planes)
+        elif 'group_norm' in norm:
+            self.bn1 = nn.GroupNorm(planes // 8, planes, affine=True)
+            self.bn2 = nn.GroupNorm(planes // 8, planes, affine=True)
         else:
             self.bn1 = lambda x: x
             self.bn2 = lambda x: x
@@ -84,28 +87,30 @@ class BasicBlock(nn.Module):
 
 
 class ResNet(nn.Module):
-    def __init__(self, block, num_blocks, num_classes=10, batch_norm=True):
+    def __init__(self, block, num_blocks, num_classes=10, norm='batch_norm', widen_factor=1):
         super(ResNet, self).__init__()
-        self.in_planes = 16
+        self.in_planes = 16 * widen_factor
 
-        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
-        if batch_norm:
-            self.bn1 = nn.BatchNorm2d(16)
+        self.conv1 = nn.Conv2d(3, 16 * widen_factor, kernel_size=3, stride=1, padding=1, bias=False)
+        if 'batch_norm' in norm:
+            self.bn1 = nn.BatchNorm2d(16 * widen_factor)
+        elif 'group_norm' in norm:
+            self.bn1 = nn.GroupNorm(2, 16 * widen_factor, affine=True)
         else:
             self.bn1 = lambda x: x
         
-        self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1, batch_norm=batch_norm)
-        self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2, batch_norm=batch_norm)
-        self.layer3 = self._make_layer(block, 64, num_blocks[2], stride=2, batch_norm=batch_norm)
-        self.linear = nn.Linear(64, num_classes)
+        self.layer1 = self._make_layer(block, 16 * widen_factor, num_blocks[0], stride=1, norm=norm)
+        self.layer2 = self._make_layer(block, 32 * widen_factor, num_blocks[1], stride=2, norm=norm)
+        self.layer3 = self._make_layer(block, 64 * widen_factor, num_blocks[2], stride=2, norm=norm)
+        self.linear = nn.Linear(64 * widen_factor, num_classes)
 
         self.apply(_weights_init)
 
-    def _make_layer(self, block, planes, num_blocks, stride, batch_norm):
+    def _make_layer(self, block, planes, num_blocks, stride, norm):
         strides = [stride] + [1]*(num_blocks-1)
         layers = []
         for stride in strides:
-            layers.append(block(self.in_planes, planes, stride, batch_norm=batch_norm))
+            layers.append(block(self.in_planes, planes, stride, norm=norm))
             self.in_planes = planes * block.expansion
 
         return nn.Sequential(*layers)
@@ -122,31 +127,27 @@ class ResNet(nn.Module):
 
 
 
-def _get_resnet(name, num_classes, batch_norm=True):
+def _get_resnet(name, num_classes, norm='batch_norm'):
     
     if name == 'resnet20':
-        m= ResNet(BasicBlock, [3, 3, 3], num_classes=num_classes, batch_norm=batch_norm)
-
+        m= ResNet(BasicBlock, [3, 3, 3], num_classes=num_classes, norm=norm)
     elif name == 'resnet32':
-        m= ResNet(BasicBlock, [5, 5, 5], num_classes=num_classes, batch_norm=batch_norm)
-        
+        m= ResNet(BasicBlock, [5, 5, 5], num_classes=num_classes, norm=norm)    
     elif name == 'resnet44':
-        m= ResNet(BasicBlock, [7, 7, 7], num_classes=num_classes, batch_norm=batch_norm)
-
+        m= ResNet(BasicBlock, [7, 7, 7], num_classes=num_classes, norm=norm)
     elif name == 'resnet56':
-        m= ResNet(BasicBlock, [9, 9, 9], num_classes=num_classes, batch_norm=batch_norm)
-    
+        m= ResNet(BasicBlock, [9, 9, 9], num_classes=num_classes, norm=norm)
     elif name == 'resnet110':
-        m= ResNet(BasicBlock, [18, 18, 18], num_classes=num_classes, batch_norm=batch_norm)
-    
+        m= ResNet(BasicBlock, [18, 18, 18], num_classes=num_classes, norm=norm)   
     elif name == 'resnet1202':
-        m= ResNet(BasicBlock, [200, 200, 200], num_classes=num_classes, batch_norm=batch_norm)
-    
+        m= ResNet(BasicBlock, [200, 200, 200], num_classes=num_classes, norm=norm)
+    elif name == 'wrn16-8':
+        m = ResNet(BasicBlock, [2, 2, 2], num_classes=num_classes, norm=norm, widen_factor=8)
     return m
 
-def get_cifar_resnet(name, num_classes, batch_norm=True):
+def get_cifar_resnet(name, num_classes, norm='batch_norm'):
     assert num_classes in [10,100]
-    m = _get_resnet(name, num_classes, batch_norm)
+    m = _get_resnet(name, num_classes, norm)
     return m
 
 # def get_imagenet32_resnet(name, num_classes, batch_norm=True):

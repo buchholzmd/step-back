@@ -22,6 +22,8 @@ FIGSIZE = (10,6)
 LEGEND_LOC = 'lower left'
 LEGEND_OUTSIDE = False
 
+LOG_SCALE = False
+
 try:
     exp_id = args.id
     save = True
@@ -42,15 +44,19 @@ plt.rc('text', usetex=True)
 
 #%%
 R = Record(output_names)
-R.filter(keep={'lr_schedule': 'constant', 'lr_schedule': 'wsd'})
+R.filter(keep={'lr_schedule': ['constant', 'wsd', 'cosine', 'diverge']}
+)
 
 # R.filter(drop={'name': ['momo-adam-star', 'momo-star']})
 # R.filter(drop={'name': ['adabelief', 'adabound', 'lion', 'prox-sps']}) 
 # R.filter(keep={'lr_schedule': 'constant'}) 
 
-
-R = Record(output_names)
-R.filter(keep={'lr_schedule': 'constant', 'lr_schedule': 'wsd'})
+# R = Record(output_names)
+# R.filter(keep={'lr_schedule': 'constant', 
+#                'lr_schedule': 'wsd', 
+#                'lr_schedule': 'cosine', 
+#                'lr_schedule': 'diverge'}
+# )
 
 # R.filter(drop={'name': ['momo-adam-star', 'momo-star']})
 # R.filter(drop={'name': ['adabelief', 'adabound', 'lion', 'prox-sps']}) 
@@ -60,8 +66,8 @@ R.filter(keep={'lr_schedule': 'constant', 'lr_schedule': 'wsd'})
 # R.filter(drop={'name': ['sgd-m', 'schedule-free', 'schedulet']})
 
 keep_list = {
-    'sgd':  {'name': ['sgd-m', 'schedule-free', 'schedulet']},
-    'adam': {'name': ['adamw', 'schedule-free-adam', 'schedulet-adam']}
+    'sgd':  {'name': ['sgd-m', 'schedule-free', 'schedulet', 'polyak']},
+    # 'adam': {'name': ['adamw', 'schedule-free-adam', 'schedulet-adam']}
 }
 
 for k in keep_list.keys():
@@ -88,7 +94,7 @@ for k in keep_list.keys():
     fig, ax = R_opt.plot_metric(df=df1, 
                                 s='val_score', 
                                 ylim=(y0, 1.05*df1.val_score.max()), 
-                                log_scale=False, 
+                                log_scale=LOG_SCALE, 
                                 figsize=FIGSIZE, 
                                 legend=False,
                                 legend_loc=LEGEND_LOC,
@@ -103,7 +109,7 @@ for k in keep_list.keys():
 
     fig, ax = R_opt.plot_metric(df=df1, 
                                 s='train_loss', 
-                                log_scale=True, 
+                                log_scale=LOG_SCALE, 
                                 figsize=FIGSIZE, 
                                 legend=False,
                                 legend_loc=LEGEND_LOC,

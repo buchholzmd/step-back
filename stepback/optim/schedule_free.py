@@ -43,6 +43,10 @@ class SGDScheduleFree(torch.optim.Optimizer):
         foreach (bool): Use a foreach-backed implementation of the optimizer.
             Should be significantly faster, but will have higher peak memory
             usage (default True if supported in your PyTorch version).
+        mode (String): Determines the setting of the weights (c_t's) based on
+            the original paper ("schedule-free"), 
+            theory ("schedulet"), or 
+            Polyak-Rupert averaging ("polyak")
     """
     def __init__(self,
                  params: ParamsT,
@@ -53,6 +57,7 @@ class SGDScheduleFree(torch.optim.Optimizer):
                  r: float = 0.0,
                  weight_lr_power: float = 2,
                  foreach: Optional[bool] = hasattr(torch, "_foreach_mul_"),
+                 mode: str = "schedule-free"
                  ):
         if lr < 0.0:
             raise ValueError("Invalid learning rate: {}".format(lr))
@@ -72,7 +77,8 @@ class SGDScheduleFree(torch.optim.Optimizer):
                         scheduled_lr=0.0,
                         weight_lr_power=weight_lr_power,
                         weight_decay=weight_decay,
-                        foreach=foreach)
+                        foreach=foreach,
+                        mode=mode)
         super().__init__(params, defaults)
     
     @torch.no_grad()
@@ -138,14 +144,32 @@ class SGDScheduleFree(torch.optim.Optimizer):
             
             r = group['r']
             lr_max = group['lr_max'] = max(lr, group['lr_max'])
-            
-            weight = ((k+1)**r) * (lr_max**weight_lr_power)
-            weight_sum = group['weight_sum'] = group['weight_sum'] + weight
 
-            try:
-                ckp1 = weight/weight_sum
-            except ZeroDivisionError:
-                ckp1 = 0
+            assert(group['mode'] in ['schedule-free', 
+                                     'schedulet', 
+                                     'polyak',
+                                     'schedule-free-adam', 
+                                     'schedulet-adam', 
+                                     'polyak-adam'])
+            
+            if 'schedule-free' in group['mode']:
+                weight = ((k+1)**r) * (lr_max**weight_lr_power)
+                weight_sum = group['weight_sum'] = group['weight_sum'] + weight
+
+                try:
+                    ckp1 = weight/weight_sum
+                except ZeroDivisionError:
+                    ckp1 = 0
+            elif 'schedulet' in group['mode']:
+                weight = lr
+                weight_sum = group['weight_sum'] = group['weight_sum'] + weight
+
+                try:
+                    ckp1 = weight/weight_sum
+                except ZeroDivisionError:
+                    ckp1 = 0
+            elif 'polyak' in group['mode']:
+                ckp1 = 1/(k+1)
 
             active_p = [p for p in group['params'] if p.grad is not None]
 
@@ -226,6 +250,10 @@ class AdamWScheduleFree(torch.optim.Optimizer):
         foreach (bool): Use a foreach-backed implementation of the optimizer.
             Should be significantly faster, but will have higher peak memory
             usage (default True if supported in your PyTorch version).
+        mode (String): Determines the setting of the weights (c_t's) based on
+            the original paper ("schedule-free"), 
+            theory ("schedulet"), or 
+            Polyak-Rupert averaging ("polyak")
     """
     def __init__(self,
                  params: ParamsT,
@@ -236,7 +264,8 @@ class AdamWScheduleFree(torch.optim.Optimizer):
                  warmup_steps: int = 0,
                  r: float = 0.0,
                  weight_lr_power: float = 2.0,
-                 foreach: Optional[bool] = hasattr(torch, "_foreach_mul_")
+                 foreach: Optional[bool] = hasattr(torch, "_foreach_mul_"),
+                 mode: str = "schedule-free"
                  ):
 
         defaults = dict(lr=lr, 
@@ -251,7 +280,8 @@ class AdamWScheduleFree(torch.optim.Optimizer):
                         scheduled_lr=0.0,
                         weight_lr_power=weight_lr_power,
                         weight_decay=weight_decay,
-                        foreach=foreach)
+                        foreach=foreach,
+                        mode=mode)
         super().__init__(params, defaults)
     
     @torch.no_grad()
@@ -318,13 +348,31 @@ class AdamWScheduleFree(torch.optim.Optimizer):
             
             lr_max = group['lr_max'] = max(lr, group['lr_max'])
             
-            weight = ((k+1)**r) * (lr_max**weight_lr_power)
-            weight_sum = group['weight_sum'] = group['weight_sum'] + weight
+            assert(group['mode'] in ['schedule-free', 
+                                     'schedulet', 
+                                     'polyak',
+                                     'schedule-free-adam', 
+                                     'schedulet-adam', 
+                                     'polyak-adam'])
+            
+            if 'schedule-free' in group['mode']:
+                weight = ((k+1)**r) * (lr_max**weight_lr_power)
+                weight_sum = group['weight_sum'] = group['weight_sum'] + weight
 
-            try:
-                ckp1 = weight/weight_sum
-            except ZeroDivisionError:
-                ckp1 = 0
+                try:
+                    ckp1 = weight/weight_sum
+                except ZeroDivisionError:
+                    ckp1 = 0
+            elif 'schedulet' in group['mode']:
+                weight = lr
+                weight_sum = group['weight_sum'] = group['weight_sum'] + weight
+
+                try:
+                    ckp1 = weight/weight_sum
+                except ZeroDivisionError:
+                    ckp1 = 0
+            elif 'polyak' in group['mode']:
+                ckp1 = 1/(k+1)
 
             active_p = [p for p in group['params'] if p.grad is not None]
             

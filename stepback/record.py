@@ -286,7 +286,11 @@ class Record:
                     continue
                 label += ', ' + k + '=' + str(v)
 
-            alpha_norm = (float(lr) - lr_min) / lr_diff
+            if lr_diff != 0:
+                alpha_norm = (float(lr) - lr_min) / lr_diff
+            else:
+                alpha_norm = 1.0
+            
             alpha = 0.5 * alpha_norm + 0.5
             # plot
             if not y.isna().all():

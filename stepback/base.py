@@ -7,7 +7,6 @@ import datetime
 import warnings
 from typing import Union
 
-
 from torch.utils.data import DataLoader
 
 from .datasets.main import get_dataset, infer_shapes
@@ -56,7 +55,6 @@ class Base:
         self.num_workers = num_workers
         self.data_parallel = data_parallel
         self.verbose = verbose
-
 
         print("CUDA available? ", torch.cuda.is_available())
         
@@ -250,8 +248,8 @@ class Base:
         """
                 
         self.model.train()
-        if 'schedule' in type(self.opt).__name__.lower():
-            print("Opt in train mode!")
+
+        if 'schedulefree' in type(self.opt).__name__.lower():
             self.opt.train()
 
         pbar = tqdm.tqdm(self.train_loader, disable=(not self.verbose))
@@ -263,6 +261,7 @@ class Base:
 
         for batch in pbar:
             # Move batch to device
+            data_t0 = time.time()
             data, targets = batch['data'].to(device=self.device), batch['targets'].to(device=self.device)
             
             # Forward and Backward
@@ -304,7 +303,6 @@ class Base:
             Should have the form {'metric_name1': metric1, 'metric_name2': metric2, ...}
         """
         
-        # create temporary DataLoader
         dl = torch.utils.data.DataLoader(dataset, drop_last=False, 
                                          batch_size=self.config['batch_size'],
                                          num_workers=self.num_workers,
@@ -314,8 +312,7 @@ class Base:
         
         self.model.eval()
 
-        if 'schedule' in type(self.opt).__name__.lower():
-            print("Opt in eval mode!")
+        if 'schedulefree' in type(self.opt).__name__.lower():
             self.opt.eval()
 
         score_dict = dict(zip(metric_dict.keys(), np.zeros(len(metric_dict))))
@@ -344,9 +341,7 @@ class Base:
 
             pbar.set_description(f'Validating {dataset.split}')
             pbar.set_description(f'Validating {dataset.split} - time data: last={timings_dataloader[-1]:.3f}(mean={np.mean(timings_dataloader):.3f}) - time model: last={timings_model[-1]:.3f}(mean={np.mean(timings_model):.3f})')
-        
-            
-        
+
         for _met in metric_dict.keys():
             # Get from sum to average
             score_dict[_met] = float(score_dict[_met] / len(dl.dataset))

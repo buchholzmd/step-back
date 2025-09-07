@@ -1,6 +1,7 @@
 import torch
 from torch.optim.lr_scheduler import LambdaLR, StepLR
 import warnings
+import math
 from typing import Tuple
 
 from .momo import Momo
@@ -10,7 +11,6 @@ from .adabound import AdaBoundW
 from .adabelief import AdaBelief
 from .lion import Lion
 from .schedule_free import SGDScheduleFree, AdamWScheduleFree
-from .schedulet import SGDSchedulet, AdamWSchedulet
 
 def get_optimizer(opt_config: dict) -> Tuple[torch.optim.Optimizer, dict]:
     """
@@ -149,19 +149,34 @@ def get_optimizer(opt_config: dict) -> Tuple[torch.optim.Optimizer, dict]:
     elif name == 'schedule-free':
         opt_obj = SGDScheduleFree
         hyperp = {'lr': opt_config.get('lr', 1.0),
-                  'momentum': opt_config.get('weight_decay', 0.9),
+                  'momentum': opt_config.get('momentum', 0.9),
                   'weight_decay': opt_config.get('weight_decay', 0),
                   'warmup_steps': opt_config.get('warmup_steps', 0),
                   'r': opt_config.get('r', 0),
                   'weight_lr_power': opt_config.get('weight_lr_power', 2.0),
+                  'mode': name,
                   }
 
     elif name == 'schedulet':
-        opt_obj = SGDSchedulet
+        opt_obj = SGDScheduleFree
         hyperp = {'lr': opt_config.get('lr', 1.0),
-                  'momentum': opt_config.get('weight_decay', 0.9),
+                  'momentum': opt_config.get('momentum', 0.9),
                   'weight_decay': opt_config.get('weight_decay', 0),
                   'warmup_steps': opt_config.get('warmup_steps', 0),
+                  'r': opt_config.get('r', 0),
+                  'weight_lr_power': opt_config.get('weight_lr_power', 2.0),
+                  'mode': name,
+                  }
+    
+    elif name == 'polyak':
+        opt_obj = SGDScheduleFree
+        hyperp = {'lr': opt_config.get('lr', 1.0),
+                  'momentum': opt_config.get('momentum', 0.9),
+                  'weight_decay': opt_config.get('weight_decay', 0),
+                  'warmup_steps': opt_config.get('warmup_steps', 0),
+                  'r': opt_config.get('r', 0),
+                  'weight_lr_power': opt_config.get('weight_lr_power', 2.0),
+                  'mode': name,
                   }
 
     elif name == 'schedule-free-adam':
@@ -173,16 +188,33 @@ def get_optimizer(opt_config: dict) -> Tuple[torch.optim.Optimizer, dict]:
                   'warmup_steps': opt_config.get('warmup_steps', 0),
                   'r': opt_config.get('r', 0),
                   'weight_lr_power': opt_config.get('weight_lr_power', 2.0),
+                  'mode': name,
                   }
 
-    elif name == 'schedulet-adam':
-        opt_obj = AdamWSchedulet
+    elif name == 'schedulet':
+        opt_obj = AdamWScheduleFree
         hyperp = {'lr': opt_config.get('lr', 0.0025),
                   'betas': opt_config.get('betas', (0.9, 0.999)),
                   'eps': opt_config.get('eps', 1e-8),
                   'weight_decay': opt_config.get('weight_decay', 0),
                   'warmup_steps': opt_config.get('warmup_steps', 0),
+                  'r': opt_config.get('r', 0),
+                  'weight_lr_power': opt_config.get('weight_lr_power', 2.0),
+                  'mode': name,
                   }
+        
+    elif name == 'polyak-adam':
+        opt_obj = AdamWScheduleFree
+        hyperp = {'lr': opt_config.get('lr', 0.0025),
+                  'betas': opt_config.get('betas', (0.9, 0.999)),
+                  'eps': opt_config.get('eps', 1e-8),
+                  'weight_decay': opt_config.get('weight_decay', 0),
+                  'warmup_steps': opt_config.get('warmup_steps', 0),
+                  'r': opt_config.get('r', 0),
+                  'weight_lr_power': opt_config.get('weight_lr_power', 2.0),
+                  'mode': name,
+                  }
+        
     else:
         raise KeyError(f"Unknown optimizer name {name}.")
         
@@ -208,6 +240,41 @@ def get_wsd_lambda(warmup, cooldown, total_steps):
             # Linear decay: from 1 to 0
             decay_step = step - (warmup_steps + stable_steps)
             return max(0.0, 1.0 - decay_step / decay_steps)
+    return lr_lambda
+
+def get_cosine_lambda(warmup, cooldown, total_steps):
+    assert 0.0 <= warmup <= 1.0
+    assert 0.0 <= cooldown <= 1.0
+    assert warmup + cooldown <= 1.0
+
+    warmup_steps = int(warmup * total_steps)
+    decay_steps = int(cooldown * total_steps)
+    stable_steps = total_steps - warmup_steps - decay_steps
+
+    def lr_lambda(step):
+        if step < warmup_steps:
+            # Linear warmup: from 0 to 1
+            return (step + 1) / warmup_steps
+        elif step < warmup_steps + stable_steps:
+            # Stable: LR = base LR
+            return 1.0
+        elif step < total_steps:
+            # Cosine decay: from 1 to 0
+            decay_step = step - (warmup_steps + stable_steps)
+            return 0.5 * (1 + math.cos(math.pi * decay_step / decay_steps))
+        else:
+            return 0.0
+    return lr_lambda
+
+def get_two_phase_lambda(total_steps, base_rate, slope):
+    stable_steps = int(math.floor(total_steps / 2))
+
+    def lr_lambda(step):
+        if step < stable_steps:
+            return 1.0  # base_rate
+        else:
+            # Compute the scaling factor relative to base_rate
+            return (base_rate + slope * (math.exp((step - stable_steps) / total_steps) - 1)) / base_rate
     return lr_lambda
 
 def get_scheduler(config: dict, opt: torch.optim.Optimizer) -> torch.optim.lr_scheduler._LRScheduler:
@@ -241,6 +308,22 @@ def get_scheduler(config: dict, opt: torch.optim.Optimizer) -> torch.optim.lr_sc
         total_steps = config['total_steps']
 
         lr_fun = get_wsd_lambda(warmup=warmup, cooldown=cooldown, total_steps=total_steps)
+        scheduler = LambdaLR(opt, lr_lambda=lr_fun)
+
+    elif 'cosine' in name:
+        warmup = config.get('warmup', 0.0)
+        cooldown = config.get('cooldown', 0.0)
+        total_steps = config['total_steps']
+
+        lr_fun = get_cosine_lambda(warmup=warmup, cooldown=cooldown, total_steps=total_steps)
+        scheduler = LambdaLR(opt, lr_lambda=lr_fun)
+
+    elif 'diverge' in name:
+        total_steps = config['total_steps']
+        base_rate = config.get('lr')
+        slope = config.get('slope', 0.1)
+
+        lr_fun = get_two_phase_lambda(total_steps=total_steps, base_rate=base_rate, slope=slope)
         scheduler = LambdaLR(opt, lr_lambda=lr_fun)
         
     else:

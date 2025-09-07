@@ -40,7 +40,7 @@ class VGG_CIFAR(nn.Module):
         return x
 
 
-def make_layers(cfg, batch_norm=False):
+def make_layers(cfg, norm=None):
     layers = []
     in_channels = 3
     for v in cfg:
@@ -48,8 +48,10 @@ def make_layers(cfg, batch_norm=False):
             layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
         else:
             conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
-            if batch_norm:
+            if 'batch_norm' in norm:
                 layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
+            elif 'group_norm' in norm:
+                layers += [conv2d, nn.GroupNorm(v // 16, v), nn.ReLU(inplace=True)]
             else:
                 layers += [conv2d, nn.ReLU(inplace=True)]
             in_channels = v
@@ -65,21 +67,21 @@ cfg = {
 }
 
 
-def _get_vgg(name, batch_norm=False, num_classes=10):
+def _get_vgg(name, norm=None, num_classes=10):
     if name == 'vgg11':
-        m = VGG_CIFAR(make_layers(cfg['A'], batch_norm=batch_norm), num_classes=num_classes)
+        m = VGG_CIFAR(make_layers(cfg['A'], norm=norm), num_classes=num_classes)
     elif name == 'vgg13':
-        m = VGG_CIFAR(make_layers(cfg['B'], batch_norm=batch_norm), num_classes=num_classes)
+        m = VGG_CIFAR(make_layers(cfg['B'], norm=norm), num_classes=num_classes)
     elif name == 'vgg16':
-        m = VGG_CIFAR(make_layers(cfg['D'], batch_norm=batch_norm), num_classes=num_classes)
+        m = VGG_CIFAR(make_layers(cfg['D'], norm=norm), num_classes=num_classes)
     elif name == 'vgg19':
-        m = VGG_CIFAR(make_layers(cfg['E'], batch_norm=batch_norm), num_classes=num_classes)
+        m = VGG_CIFAR(make_layers(cfg['E'], norm=norm), num_classes=num_classes)
     
     return m
 
-def get_cifar_vgg(name, batch_norm=False, num_classes=10):
+def get_cifar_vgg(name, norm=None, num_classes=10):
     assert num_classes in [10,100]
-    m = _get_vgg(name, batch_norm, num_classes)
+    m = _get_vgg(name, norm, num_classes)
     return m
 
 # def get_imagenet32_vgg(name, batch_norm=False):

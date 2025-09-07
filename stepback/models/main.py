@@ -6,6 +6,7 @@ from .basic_models import MLP, MatrixFac, MatrixComplete
 from .vgg import get_cifar_vgg
 from .resnet import get_cifar_resnet
 from .kuangliu_resnet import get_kuangliu_resnet
+from .densenet import get_cifar_densenet
 
 
 def get_num_classes(dataset_name):
@@ -81,7 +82,7 @@ def get_model(config: dict, input_dim: list, output_dim: list) -> torch.nn.Modul
             raise KeyError(f"Model {name} is not implemented yet for dataset {config['dataset']}.")   
     
     #======== Resnet =============
-    elif name in ['resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110', 'resnet1202']:
+    elif name in ['resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110', 'resnet1202', 'wrn16-8']:
         
         if config['dataset'] in ['cifar10', 'cifar100']:
             num_classes = get_num_classes(config['dataset'])
@@ -103,6 +104,13 @@ def get_model(config: dict, input_dim: list, output_dim: list) -> torch.nn.Modul
                 model = resnet50(pretrained=False)
         else:
             raise KeyError(f"Model {name} is not implemented yet for dataset {config['dataset']}.")
+        
+    elif name in ['densenet100', 'densenet121', 'densenet169', 'densenet201','densenet161']:
+        
+        if config['dataset'] == 'cifar100':
+            model = get_cifar_densenet(name, **kwargs) # batch_norm True by default
+        else:
+            raise KeyError(f"Model {name} is not implemented yet for dataset {config['dataset']}.")   
     
     # ======== Vision transformer =============
     elif name == 'vit':

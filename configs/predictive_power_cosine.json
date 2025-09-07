@@ -1,0 +1,19 @@
+{
+    "dataset": "cifar10",
+    "model": "resnet20",
+    "model_kwargs": {"norm": "group_norm"},
+    "loss_func": "cross_entropy",
+    "score_func": "cross_entropy_accuracy",
+    "opt": [
+            {"name": "schedulet", 
+             "lr": [3.162], 
+             "weight_decay": 1e-4,
+             "momentum": 0.9, 
+             "lr_schedule": "cosine", 
+             "warmup": 0.05, 
+             "cooldown": 0.5}
+        ],
+    "batch_size": 128,
+    "max_epoch": 50,
+    "n_runs": 1
+}
