@@ -288,7 +288,7 @@ class Record:
         for m in df.id.unique():
             this_df = df[df.id==m]
             x = this_df.loc[:,self.step_unit]
-            if s != 'theory':
+            if s != 'conv_bound':
                 if smooth is None:
                     y = this_df.loc[:,s]
                 else:
