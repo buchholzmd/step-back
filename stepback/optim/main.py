@@ -266,8 +266,8 @@ def get_cosine_lambda(warmup, cooldown, total_steps):
             return 0.0
     return lr_lambda
 
-def get_two_phase_lambda(total_steps, base_rate, slope):
-    stable_steps = int(math.floor(total_steps / 2))
+def get_two_phase_lambda(transition, total_steps, base_rate, slope):
+    stable_steps = int(math.floor(transition * total_steps))
 
     def lr_lambda(step):
         if step < stable_steps:
@@ -319,11 +319,12 @@ def get_scheduler(config: dict, opt: torch.optim.Optimizer) -> torch.optim.lr_sc
         scheduler = LambdaLR(opt, lr_lambda=lr_fun)
 
     elif 'diverge' in name:
+        transition = config['transition'] 
         total_steps = config['total_steps']
-        base_rate = config.get('lr')
-        slope = config.get('slope', 0.1)
+        base_rate = config['lr'] 
+        slope = config['slope']
 
-        lr_fun = get_two_phase_lambda(total_steps=total_steps, base_rate=base_rate, slope=slope)
+        lr_fun = get_two_phase_lambda(transition=transition, total_steps=total_steps, base_rate=base_rate, slope=slope)
         scheduler = LambdaLR(opt, lr_lambda=lr_fun)
         
     else:

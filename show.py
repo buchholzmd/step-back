@@ -16,13 +16,16 @@ parser = argparse.ArgumentParser(description='Generate step-back plots.')
 parser.add_argument('-i', '--id', nargs='?', type=str, default='test', help="The id of the config (its file name).")
 args = parser.parse_args()
 
-FIGSIZE = (10,6)
+FIGSIZE = (25,7)
+# FIGSIZE = (10,6)
 # FIGSIZE = (7,4)
 
 LEGEND_LOC = 'lower left'
 LEGEND_OUTSIDE = False
 
 LOG_SCALE = False
+
+PER_EPOCH = False
 
 try:
     exp_id = args.id
@@ -43,7 +46,7 @@ plt.rcParams['axes.linewidth'] = 1
 plt.rc('text', usetex=True)
 
 #%%
-R = Record(output_names)
+R = Record(output_names,per_epochs=PER_EPOCH)
 R.filter(keep={'lr_schedule': ['constant', 'wsd', 'cosine', 'diverge']}
 )
 
@@ -83,31 +86,44 @@ for k in keep_list.keys():
     #%% plot training curves for a subset of runs:
 
     # takes 3 best runs per methods
-    best = base_df[base_df.epoch==base_df.epoch.max()].groupby('name')['val_score'].nlargest(3)
-    #best = base_df[base_df.epoch==base_df.epoch.max()].groupby('name')['train_loss'].nsmallest(3)
-    ixx = base_df.id[best.index.levels[1]]
-    df1 = base_df.loc[base_df.id.isin(ixx),:]
+    if PER_EPOCH:
+        best = base_df[base_df.epoch==base_df.epoch.max()].groupby('name')['val_score'].nlargest(3)
+        #best = base_df[base_df.epoch==base_df.epoch.max()].groupby('name')['train_loss'].nsmallest(3)
+        ixx = base_df.id[best.index.levels[1]]
+        df1 = base_df.loc[base_df.id.isin(ixx),:]
 
-    # y0 = 0.3 if 'cifar100_resnet110' in exp_id else 0.4 if 'cifar10_vit' in exp_id else 0.75
-    y0 = 0.9 * df1['val_score'].min()
+        # y0 = 0.3 if 'cifar100_resnet110' in exp_id else 0.4 if 'cifar10_vit' in exp_id else 0.75
+        y0 = 0.9 * df1['val_score'].min()
 
-    fig, ax = R_opt.plot_metric(df=df1, 
-                                s='val_score', 
-                                ylim=(y0, 1.05*df1.val_score.max()), 
-                                log_scale=LOG_SCALE, 
-                                figsize=FIGSIZE, 
-                                legend=False,
-                                legend_loc=LEGEND_LOC,
-                                legend_outside=LEGEND_OUTSIDE,
-                                )
-    fig.subplots_adjust(top=0.975,bottom=0.16,left=0.16,right=0.975)
+        fig, ax = R_opt.plot_metric(df=df1, 
+                                    s='val_score', 
+                                    ylim=(y0, 1.05*df1.val_score.max()), 
+                                    log_scale=LOG_SCALE, 
+                                    figsize=FIGSIZE, 
+                                    legend=False,
+                                    legend_loc=LEGEND_LOC,
+                                    legend_outside=LEGEND_OUTSIDE,
+                                    )
+        fig.subplots_adjust(top=0.975,bottom=0.16,left=0.16,right=0.975)
 
-    os.makedirs('output/plots/' + exp_id, exist_ok=True)
+        os.makedirs('output/plots/' + exp_id, exist_ok=True)
 
-    if save:
-        fig.savefig('output/plots/' + exp_id + f'/all_val_score_{k}.pdf')
+        if save:
+            fig.savefig('output/plots/' + exp_id + f'/all_val_score_{k}.pdf')
 
-    fig, ax = R_opt.plot_metric(df=df1, 
+        fig, ax = R_opt.plot_metric(df=df1, 
+                                    s='val_loss', 
+                                    log_scale=LOG_SCALE, 
+                                    figsize=FIGSIZE, 
+                                    legend=False,
+                                    legend_loc=LEGEND_LOC,
+                                    legend_outside=LEGEND_OUTSIDE,
+                                    )
+        fig.subplots_adjust(top=0.975,bottom=0.16,left=0.17,right=0.975)
+        if save:
+            fig.savefig('output/plots/' + exp_id + f'/all_val_loss_{k}.pdf')
+
+        fig, ax = R_opt.plot_metric(df=df1, 
                                 s='train_loss', 
                                 log_scale=LOG_SCALE, 
                                 figsize=FIGSIZE, 
@@ -115,65 +131,113 @@ for k in keep_list.keys():
                                 legend_loc=LEGEND_LOC,
                                 legend_outside=LEGEND_OUTSIDE,
                                 )
-    fig.subplots_adjust(top=0.975,bottom=0.16,left=0.17,right=0.975)
-    if save:
-        fig.savefig('output/plots/' + exp_id + f'/all_train_loss_{k}.pdf')
+        fig.subplots_adjust(top=0.975,bottom=0.16,left=0.17,right=0.975)
+        if save:
+            fig.savefig('output/plots/' + exp_id + f'/all_train_loss_{k}.pdf')
+
+        fig, ax = R_opt.plot_metric(df=df1, 
+                                    s='grad_norm', 
+                                    log_scale=LOG_SCALE, 
+                                    figsize=FIGSIZE, 
+                                    legend=False,
+                                    legend_loc=LEGEND_LOC,
+                                    legend_outside=LEGEND_OUTSIDE,
+                                    )
+        fig.subplots_adjust(top=0.975,bottom=0.16,left=0.17,right=0.975)
+        if save:
+            fig.savefig('output/plots/' + exp_id + f'/all_grad_norm_{k}.pdf')
+
+        #%% stability plots
+
+        fig, axs = plot_stability(R, 
+                                score='val_score', 
+                                xaxis='lr', sigma=1, 
+                                legend=None, 
+                                cutoff=None, 
+                                figsize=FIGSIZE, 
+                                save=save,
+                                legend_loc=LEGEND_LOC,
+                                legend_outside=LEGEND_OUTSIDE
+                                )
+        fig, axs = plot_stability(R, 
+                                score='train_loss', 
+                                xaxis='lr', 
+                                sigma=1, 
+                                legend=None, 
+                                cutoff=None, 
+                                figsize=FIGSIZE, 
+                                save=save,
+                                legend_loc=LEGEND_LOC,
+                                legend_outside=LEGEND_OUTSIDE,
+                                )
+        fig, axs = plot_stability(R, 
+                                score=['train_loss', 'val_score'], 
+                                xaxis='lr', 
+                                sigma=1, 
+                                legend=None, 
+                                cutoff=None, 
+                                figsize=(FIGSIZE[0],2*FIGSIZE[1]), 
+                                save=save,
+                                legend_loc=LEGEND_LOC,
+                                legend_outside=LEGEND_OUTSIDE,
+                                )
+
+        #%% plots the adaptive step size
+        ### THIS PLOT IS ONLY RELEVANT FOR METHODS WITH ADAPTIVE STEP SIZE
+        ###################################
+
+        # if 'cifar10_resnet20' in exp_id:
+        #     _ = plot_step_sizes(R, method='momo', grid=(3,3), start=None, stop=None, save=save)
+        #     _ = plot_step_sizes(R, method='momo-adam', grid=(3,2), start=1, stop=None, save=save)
+        # elif 'cifar10_vgg16' in exp_id:
+        #     _ = plot_step_sizes(R, method='momo', grid=(3,3), start=2, stop=11, save=save)
+        #     _ = plot_step_sizes(R, method='momo-adam', grid=(3,3), start=2, stop=11, save=save)
+        # elif 'mnist_mlp' in exp_id:
+        #     _ = plot_step_sizes(R, method='momo', grid=(3,2), start=1, stop=None, save=save)
+        #     _ = plot_step_sizes(R, method='momo-adam', grid=(3,2), start=None, stop=None, save=save)
+        # elif 'cifar100_resnet110' in exp_id:
+        #     _ = plot_step_sizes(R, method='momo', grid=(3,2), start=1, stop=7, save=save)
+        #     _ = plot_step_sizes(R, method='momo-adam', grid=(3,2), start=1, stop=7, save=save)
+        # elif 'cifar10_vit' in exp_id:
+        #     _ = plot_step_sizes(R, method='momo', grid=(2,2), start=1, stop=5, save=save)
+        #     _ = plot_step_sizes(R, method='momo-adam', grid=(2,2), start=None, stop=None, save=save)
 
 
-#%% stability plots
+        # %%
 
-fig, axs = plot_stability(R, 
-                          score='val_score', 
-                          xaxis='lr', sigma=1, 
-                          legend=None, 
-                          cutoff=None, 
-                          figsize=FIGSIZE, 
-                          save=save,
-                          legend_loc=LEGEND_LOC,
-                          legend_outside=LEGEND_OUTSIDE
-                        )
-fig, axs = plot_stability(R, 
-                          score='train_loss', 
-                          xaxis='lr', 
-                          sigma=1, 
-                          legend=None, 
-                          cutoff=None, 
-                          figsize=FIGSIZE, 
-                          save=save,
-                          legend_loc=LEGEND_LOC,
-                          legend_outside=LEGEND_OUTSIDE,
-                        )
-fig, axs = plot_stability(R, 
-                          score=['train_loss', 'val_score'], 
-                          xaxis='lr', 
-                          sigma=1, 
-                          legend=None, 
-                          cutoff=None, 
-                          figsize=(FIGSIZE[0],2*FIGSIZE[1]), 
-                          save=save,
-                          legend_loc=LEGEND_LOC,
-                          legend_outside=LEGEND_OUTSIDE,
-                        )
+    else:
+        df1 = base_df
 
-#%% plots the adaptive step size
-### THIS PLOT IS ONLY RELEVANT FOR METHODS WITH ADAPTIVE STEP SIZE
-###################################
+        fig, axs = plt.subplots(ncols=3, figsize=FIGSIZE)
 
-# if 'cifar10_resnet20' in exp_id:
-#     _ = plot_step_sizes(R, method='momo', grid=(3,3), start=None, stop=None, save=save)
-#     _ = plot_step_sizes(R, method='momo-adam', grid=(3,2), start=1, stop=None, save=save)
-# elif 'cifar10_vgg16' in exp_id:
-#     _ = plot_step_sizes(R, method='momo', grid=(3,3), start=2, stop=11, save=save)
-#     _ = plot_step_sizes(R, method='momo-adam', grid=(3,3), start=2, stop=11, save=save)
-# elif 'mnist_mlp' in exp_id:
-#     _ = plot_step_sizes(R, method='momo', grid=(3,2), start=1, stop=None, save=save)
-#     _ = plot_step_sizes(R, method='momo-adam', grid=(3,2), start=None, stop=None, save=save)
-# elif 'cifar100_resnet110' in exp_id:
-#     _ = plot_step_sizes(R, method='momo', grid=(3,2), start=1, stop=7, save=save)
-#     _ = plot_step_sizes(R, method='momo-adam', grid=(3,2), start=1, stop=7, save=save)
-# elif 'cifar10_vit' in exp_id:
-#     _ = plot_step_sizes(R, method='momo', grid=(2,2), start=1, stop=5, save=save)
-#     _ = plot_step_sizes(R, method='momo-adam', grid=(2,2), start=None, stop=None, save=save)
+        fig, _ = R_opt.plot_metric(df=df1, 
+                                   s='train_loss', 
+                                #    ylim=(0, 0.05*df1.train_loss.max()), 
+                                   log_scale=LOG_SCALE,
+                                   ax=axs[0],
+                                   legend=False,
+                                   legend_loc=LEGEND_LOC,
+                                   legend_outside=LEGEND_OUTSIDE,
+        )
+        
+        fig, _ = R_opt.plot_metric(df=df1, 
+                                   s='grad_norm', 
+                                #    ylim=(0, 0.45*df1.grad_norm.max()), 
+                                   log_scale=LOG_SCALE, 
+                                   ax=axs[1],
+                                   legend=False,
+                                   legend_loc=LEGEND_LOC,
+                                   legend_outside=LEGEND_OUTSIDE,
+        )
 
-
-# %%
+        # fig, _ = R_opt.plot_metric(df=df1, 
+        #                             s='theory', 
+        #                             log_scale=LOG_SCALE, 
+        #                             ax=axs[2],
+        #                             figsize=FIGSIZE, 
+        #                             legend=False,
+        #                             legend_loc=LEGEND_LOC,
+        #                             legend_outside=LEGEND_OUTSIDE,
+        #                             )
+        if save:
+            fig.savefig('output/plots/' + exp_id + f'/predictive_power_{k}.pdf')

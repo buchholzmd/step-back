@@ -1,5 +1,6 @@
 from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D
+from matplotlib.collections import LineCollection
 import seaborn as sns
 import pandas as pd
 import numpy as np
@@ -21,11 +22,15 @@ class Record:
     def __init__(self, 
                  exp_id: Union[str, list], 
                  output_dir: str=DEFAULTS.output_dir, 
-                 as_json: bool=True
+                 as_json: bool=True,
+                 per_epochs: bool=True
                  ):
         
         self.exp_id = exp_id
         self.aes = copy.deepcopy(AES)
+        self.per_epochs = per_epochs
+
+        self.step_unit = 'epoch' if self.per_epochs else 'iteration'
 
         # exp_id can be str or list (if we want to merge multiple output files)
         if isinstance(exp_id, str):
@@ -94,7 +99,10 @@ class Record:
         """ create DataFrame with the stored output. Creates an id column based on opt config. """
         df_list = list()
         for r in self.data:
-            this_df = pd.DataFrame(r['history'])
+            if self.per_epochs:
+                this_df = pd.DataFrame(r['history'])
+            else:
+                this_df = pd.DataFrame(r['batch_history'])
             
             opt_dict = copy.deepcopy(r['config']['opt'])
             opt_dict = {'name': opt_dict.pop('name'), **opt_dict} # move name to beginning
@@ -112,7 +120,7 @@ class Record:
         df.insert(0, 'id', df.pop('id')) # move id column to front
 
         # raise error if duplicates
-        if df.duplicated(subset=['id', 'epoch', 'run_id']).any():
+        if df.duplicated(subset=['id', self.step_unit, 'run_id', 'iteration']).any():
             raise KeyError("There seem to be duplicates (by id, epoch, run_id). Please check the output data.")
 
         return df
@@ -139,21 +147,21 @@ class Record:
             nan_mean_fun = lambda x: x.mean(skipna=False)
             agg_dict = dict([(c, nan_mean_fun) if is_numeric_dtype(raw_df[c]) else (c, 'first') for c in raw_df.columns])
             agg_dict.pop('id')
-            agg_dict.pop('epoch')
+            agg_dict.pop(self.step_unit)
 
-            df = raw_df.groupby(['id', 'epoch'], sort=False).agg(agg_dict).drop('run_id',axis=1)
+            df = raw_df.groupby(['id', self.step_unit], sort=False).agg(agg_dict).drop('run_id',axis=1)
             
             # only compute std for float columns
             # std returns nan if some entrys are nan
             std_columns = [c for c in raw_df.columns if is_numeric_dtype(raw_df[c])]
-            df2 = raw_df.groupby(['id', 'epoch'], sort=False)[std_columns].std().drop('run_id',axis=1)           
+            df2 = raw_df.groupby(['id', self.step_unit], sort=False)[std_columns].std().drop('run_id',axis=1)           
             df2.columns = [c+'_std' for c in df2.columns]
             
             df = pd.concat([df,df2], axis=1) 
             df = df.reset_index(level=-1) # moves epoch out of index
             
         elif agg == 'first':
-            df = raw_df.sort_values(['id', 'epoch', 'run_id']).groupby(['id', 'epoch'], sort=False).first()
+            df = raw_df.sort_values(['id', self.step_unit, 'run_id']).groupby(['id', self.step_unit], sort=False).first()
             assert len(df.run_id.unique()) == 1
             df = df.drop('run_id', axis=1)
             df = df.reset_index(level=-1) # moves epoch out of index
@@ -169,18 +177,21 @@ class Record:
         id_df = self.id_df.copy()
 
         grouped = base_df.groupby(['name', xaxis])
-        max_epoch = grouped['epoch'].max()
+        max_epoch = grouped[self.step_unit].max()
         assert len(max_epoch.unique()) == 1, "It seems that different setups ran for different number of epochs."
 
-        if cutoff is None:
-            cutoff_epoch = (max_epoch[0], max_epoch[0])
-        else:
-            cutoff_epoch = (cutoff, max_epoch[0])
+        if self.per_epochs:
+            if cutoff is None:
+                cutoff_epoch = (max_epoch[0], max_epoch[0])
+            else:
+                cutoff_epoch = (cutoff, max_epoch[0])
 
-        # filter epochs
-        sub_df = base_df[(base_df.epoch >= cutoff_epoch[0])
-                         &
-                         (base_df.epoch <= cutoff_epoch[1])] 
+            # filter epochs
+            sub_df = base_df[(base_df.epoch >= cutoff_epoch[0])
+                            &
+                            (base_df.epoch <= cutoff_epoch[1])]
+        else:
+            sub_df = base_df
         # select the columns to group by
         grouping_cols = [c for c in id_df.columns if c not in ignore_columns]
         # group by all id_cols
@@ -218,7 +229,7 @@ class Record:
             db = df.copy()
         
         # sort
-        db = db.sort_values(['id', 'epoch'])
+        db = db.sort_values(['id', self.step_unit])
 
         # train time depends on hardware and is not meaningful
         if 'train_epoch_time' in db.columns:
@@ -242,9 +253,12 @@ class Record:
                     ylim=None, 
                     legend=True, 
                     figsize=(4,4), 
-                    ax=None, 
+                    ax=None,
+                    color_map=None,
+                    label=None,
                     legend_loc='center left', 
-                    legend_outside=False
+                    legend_outside=False,
+                    smooth=None
                     ):
         set_plot_aesthetics()
 
@@ -273,18 +287,30 @@ class Record:
 
         for m in df.id.unique():
             this_df = df[df.id==m]
-            x = this_df.loc[:,'epoch']
-            y = this_df.loc[:,s]
+            x = this_df.loc[:,self.step_unit]
+            if s != 'theory':
+                if smooth is None:
+                    y = this_df.loc[:,s]
+                else:
+                    y = this_df[s].ewm(alpha=smooth, adjust=False).mean()
+            else:
+                grad_norm = this_df.loc[:,'grad_norm']
+                etas = this_df.loc[:,'learning_rate']
+                lambdas = this_df.loc[:,'lambda']
+
+                f_init_error = this_df.loc[:,'train_loss'].values[0]
+
             conf = id_to_dict(m) 
             
             lr = conf['lr']
 
             # construct label
-            label = conf['name'] + ', ' + r'$\alpha_0=$' + lr
-            for k,v in conf.items():
-                if k in ['name', 'lr']:
-                    continue
-                label += ', ' + k + '=' + str(v)
+            if not label:
+                label = conf['name'] + ', ' + r'$\alpha_0=$' + lr
+                for k,v in conf.items():
+                    if k in ['name', 'lr']:
+                        continue
+                    label += ', ' + k + '=' + str(v)
 
             if lr_diff != 0:
                 alpha_norm = (float(lr) - lr_min) / lr_diff
@@ -294,19 +320,34 @@ class Record:
             alpha = 0.5 * alpha_norm + 0.5
             # plot
             if not y.isna().all():
-                names_legend.append(conf['name'])
-                ax.plot(x, 
-                        y, 
-                        c=self.aes.get(conf['name'], self.aes['default']).get('color'), 
-                        marker=next(self.aes.get(conf['name'], self.aes['default']).get('marker_cycle')) if legend else 'o', 
-                        markersize=markersize, 
-                        markevery=(self.aes.get(conf['name'], self.aes['default']).get('markevery'), 20), 
-                        alpha = alpha,
-                        label=label,
-                        zorder=self.aes.get(conf['name'], self.aes['default']).get('zorder')
+                if color_map is not None and "phases" in color_map[m]:
+                    for phase in color_map[m]["phases"]:
+                        ax.plot(
+                            x[phase["start"]:phase["end"]],
+                            y[phase["start"]:phase["end"]],
+                            color=phase["color"],
+                            label=label
+                            # label=f"{exp_id} phase"
                         )
+                else:
+                    if color_map is None:
+                        c = self.aes.get(conf['name'], self.aes['default']).get('color')
+                    else:
+                        c = color_map[m]
+
+                    names_legend.append(conf['name'])
+                    ax.plot(x, 
+                            y, 
+                            c=c, 
+                            # marker=next(self.aes.get(conf['name'], self.aes['default']).get('marker_cycle')) if legend else 'o', 
+                            # markersize=markersize,
+                            # markevery=(self.aes.get(conf['name'], self.aes['default']).get('markevery'), 20), 
+                            alpha = alpha,
+                            label=label,
+                            zorder=self.aes.get(conf['name'], self.aes['default']).get('zorder')
+                            )
         
-        ax.set_xlabel('Epoch')
+        ax.set_xlabel(self.step_unit)
         ax.set_ylabel(SCORE_NAMES.get(s, s))
         ax.grid(which='both', lw=0.2, ls='--', zorder=-10)
         

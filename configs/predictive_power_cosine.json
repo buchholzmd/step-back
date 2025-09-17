@@ -6,12 +6,12 @@
     "score_func": "cross_entropy_accuracy",
     "opt": [
             {"name": "schedulet", 
-             "lr": [3.162], 
+             "lr": [1, 10], 
              "weight_decay": 1e-4,
              "momentum": 0.9, 
              "lr_schedule": "cosine", 
              "warmup": 0.05, 
-             "cooldown": 0.5}
+             "cooldown": [0.75, 0.5, 0.25]}
         ],
     "batch_size": 128,
     "max_epoch": 50,

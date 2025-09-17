@@ -1,3 +1,4 @@
+import os
 import tqdm
 import numpy as np
 import torch
@@ -55,6 +56,22 @@ class Base:
         self.num_workers = num_workers
         self.data_parallel = data_parallel
         self.verbose = verbose
+        self.best_loss = np.inf
+        
+        model_dir = f"output/{self.config['dataset']}_{self.config['model']}"
+
+        opt_dir = f"{self.config['opt']['name']}_{self.config['opt']['lr']}_{self.config['opt']['lr_schedule']}"
+        if 'warmup' in self.config['opt'].keys():
+            opt_dir += f"_{self.config['opt']['warmup']}"
+        if 'cooldown' in self.config['opt'].keys():
+            opt_dir += f"_{self.config['opt']['cooldown']}"
+        if 'transition' in self.config['opt'].keys():
+            opt_dir += f"_{self.config['opt']['transition']}"
+        if 'slope' in self.config['opt'].keys():
+            opt_dir += f"_{self.config['opt']['slope']}"
+
+        self.output_dir = os.path.join(model_dir, opt_dir)
+        os.makedirs(self.output_dir, exist_ok=True)
 
         print("CUDA available? ", torch.cuda.is_available())
         
@@ -136,6 +153,9 @@ class Base:
             devices = [int(d) for d in self.data_parallel]
             self.model = torch.nn.DataParallel(self.model, device_ids=devices)
 
+        init_params = {name: p.detach().cpu().numpy().flatten() for name, p in self.model.named_parameters()}
+        np.savez(f'{self.output_dir}/init_model_params.npz', **init_params)
+
         return
         
 
@@ -180,7 +200,7 @@ class Base:
     
     def run(self):
         start_time = str(datetime.datetime.now())
-        score_list = []   
+        score_list, batch_list = [], []
         self._epochs_trained = 0
         
         for epoch in range(self.config['max_epoch']):
@@ -193,7 +213,7 @@ class Base:
                            
             # Train one epoch
             s_time = time.time()
-            self.train_epoch()
+            epoch_batch_list = self.train_epoch()
             e_time = time.time()
             
             # Record metrics
@@ -231,6 +251,7 @@ class Base:
 
                 # Add score_dict to score_list
                 score_list += [score_dict]
+                batch_list += epoch_batch_list
             
             self._epochs_trained += 1
         
@@ -238,6 +259,7 @@ class Base:
         
         # ==== store =====================
         self.results['history'] = copy.deepcopy(score_list)
+        self.results['batch_history'] = copy.deepcopy(batch_list)
         self.results['summary']['start_time'] = start_time
         self.results['summary']['end_time'] = end_time
         return
@@ -257,9 +279,11 @@ class Base:
         timings_model = list()
         timings_dataloader = list()
 
+        batch_list = []
+
         t0 = time.time()
 
-        for batch in pbar:
+        for batch_idx, batch in enumerate(pbar):
             # Move batch to device
             data_t0 = time.time()
             data, targets = batch['data'].to(device=self.device), batch['targets'].to(device=self.device)
@@ -280,20 +304,39 @@ class Base:
                 self.opt.prestep(out, targets, ind, self.training_loss.name)
 
             # Here the magic happens
-            loss_val = self.opt.step(closure=closure) 
+            loss_val = self.opt.step(closure=closure)
+
+            if loss_val < self.best_loss:
+                self.best_loss = loss_val
+                
+                best_params = {name: p.detach().cpu().numpy().flatten() for name, p in self.model.named_parameters()}
+                np.savez(f'{self.output_dir}/best_model_params.npz', **best_params)
             
             if self.device != torch.device('cpu'):
                 torch.cuda.synchronize()
             timings_dataloader.append(t1-t0) 
             t0 = time.time()                                        # model timing ends
-            timings_model.append(t0-t1)                 
+            timings_model.append(t0-t1)
+
+            global_idx = batch_idx + self._epochs_trained * len(self.train_loader)
+        
+            # Record metrics
+            batch_dict = {'iteration': global_idx}
+            batch_dict['learning_rate'] = self.sched.get_last_lr()[0] # must be stored before sched.step()
+                           
+            # Record metrics     
+            batch_dict['model_norm'] = l2_norm(self.model)        
+            batch_dict['grad_norm'] = grad_norm(self.model)
+            batch_dict['train_loss'] = loss_val.item() if hasattr(loss_val, 'item') else loss_val        
             
             pbar.set_description(f'Training - loss={loss_val:.3f} - time data: last={timings_dataloader[-1]:.3f},(mean={np.mean(timings_dataloader):.3f}) - time model+step: last={timings_model[-1]:.3f}(mean={np.mean(timings_model):.3f})')
 
             # update learning rate             
             self.sched.step()
 
-        return
+            batch_list += [batch_dict]
+
+        return batch_list
     
     def evaluate(self, dataset, metric_dict):
         """
