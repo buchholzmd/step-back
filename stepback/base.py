@@ -358,6 +358,8 @@ class Base:
 
                 init_params = torch.cat([torch.tensor(self.init_params[k].ravel()) for k in self.init_params])
                 best_params = torch.cat([torch.tensor(self.best_params[k].ravel()) for k in self.best_params])
+                optimal_lr_sched(lrs, grad_norms, current_grad_norm, init_loss, best_loss, init_params, best_params, use_c = True):
+                
                 new_lr = self.optimal_lr_sched(self.lr_history,
                                                self.grad_norm_history,
                                                current_grad_norm,
