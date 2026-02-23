@@ -120,7 +120,7 @@ class Record:
         df.insert(0, 'id', df.pop('id')) # move id column to front
 
         # raise error if duplicates
-        if df.duplicated(subset=['id', self.step_unit, 'run_id', 'iteration']).any():
+        if df.duplicated(subset=['id', self.step_unit, 'run_id',]).any():
             raise KeyError("There seem to be duplicates (by id, epoch, run_id). Please check the output data.")
 
         return df
@@ -258,9 +258,11 @@ class Record:
                     label=None,
                     legend_loc='center left', 
                     legend_outside=False,
-                    smooth=None
+                    legend_lw=1.0,
+                    smooth=None,
+                    latex=True
                     ):
-        set_plot_aesthetics()
+        set_plot_aesthetics(latex=latex)
 
         if df is None:
             df = self.base_df.copy()
@@ -318,6 +320,9 @@ class Record:
                 alpha_norm = 1.0
             
             alpha = 0.5 * alpha_norm + 0.5
+
+            if alpha > 1:
+                alpha = 1.0
             # plot
             if not y.isna().all():
                 if color_map is not None and "phases" in color_map[m]:
@@ -326,7 +331,8 @@ class Record:
                             x[phase["start"]:phase["end"]],
                             y[phase["start"]:phase["end"]],
                             color=phase["color"],
-                            label=label
+                            label=label,
+                            alpha=0.8,
                             # label=f"{exp_id} phase"
                         )
                 else:
@@ -351,6 +357,9 @@ class Record:
         ax.set_ylabel(SCORE_NAMES.get(s, s))
         ax.grid(which='both', lw=0.2, ls='--', zorder=-10)
         
+        y_lower = int(y.min())
+        ax.set_ylim(bottom = 0.8 * y_lower)
+
         if log_scale:
             ax.set_yscale('log')    
         if ylim:
@@ -359,8 +368,17 @@ class Record:
         labels = df['name'].unique().tolist()
         color_list = [[self.aes.get(n, self.aes['default'])['color']] for n in labels]
 
+        for idx, label in enumerate(labels):
+            if label == 'polyak':
+                labels[idx] = rf'Theoretical $c_t$'
+            elif label == 'schedule-free':
+                labels[idx] = rf'Practical $c_t$'
+
+            labels[idx] += f' lr = {df[df['name'] == label]['lr'].values[0]}'
+
         bbox_to_anchor = (1, 0.5) if legend_outside else None
-        do_fancy_legend(ax, labels, color_list, loc=legend_loc, bbox_to_anchor=bbox_to_anchor)
+        if legend:
+            do_fancy_legend(ax, labels, color_list, loc=legend_loc, bbox_to_anchor=bbox_to_anchor, lw=legend_lw)
         # fig.subplots_adjust(right=0.85)  # Add this line
         # full legend or only solver names
         # if legend:

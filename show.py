@@ -16,7 +16,9 @@ parser = argparse.ArgumentParser(description='Generate step-back plots.')
 parser.add_argument('-i', '--id', nargs='?', type=str, default='test', help="The id of the config (its file name).")
 args = parser.parse_args()
 
-FIGSIZE = (25,7)
+# FIGSIZE = (25,7)
+FIGSIZE = (9,7)
+# FIGSIZE = (17,7)
 # FIGSIZE = (10,6)
 # FIGSIZE = (7,4)
 
@@ -25,14 +27,13 @@ LEGEND_OUTSIDE = False
 
 LOG_SCALE = False
 
-PER_EPOCH = False
+PER_EPOCH = True
 
-try:
-    exp_id = args.id
-    save = True
-except:
-    exp_id = 'cifar100_resnet110'
-    save = False
+exp_id = args.id
+save = True
+# except:
+#     exp_id = 'cifar100_resnet110'
+#     save = False
 
 output_names = get_output_filenames(exp_id)
 ############################################################
@@ -100,7 +101,7 @@ for k in keep_list.keys():
                                     ylim=(y0, 1.05*df1.val_score.max()), 
                                     log_scale=LOG_SCALE, 
                                     figsize=FIGSIZE, 
-                                    legend=False,
+                                    legend=True,
                                     legend_loc=LEGEND_LOC,
                                     legend_outside=LEGEND_OUTSIDE,
                                     )
@@ -115,7 +116,7 @@ for k in keep_list.keys():
                                     s='val_loss', 
                                     log_scale=LOG_SCALE, 
                                     figsize=FIGSIZE, 
-                                    legend=False,
+                                    legend=True,
                                     legend_loc=LEGEND_LOC,
                                     legend_outside=LEGEND_OUTSIDE,
                                     )
@@ -127,8 +128,8 @@ for k in keep_list.keys():
                                 s='train_loss', 
                                 log_scale=LOG_SCALE, 
                                 figsize=FIGSIZE, 
-                                legend=False,
-                                legend_loc=LEGEND_LOC,
+                                legend=True,
+                                legend_loc='upper right',
                                 legend_outside=LEGEND_OUTSIDE,
                                 )
         fig.subplots_adjust(top=0.975,bottom=0.16,left=0.17,right=0.975)
@@ -139,7 +140,7 @@ for k in keep_list.keys():
                                     s='grad_norm', 
                                     log_scale=LOG_SCALE, 
                                     figsize=FIGSIZE, 
-                                    legend=False,
+                                    legend=True,
                                     legend_loc=LEGEND_LOC,
                                     legend_outside=LEGEND_OUTSIDE,
                                     )
@@ -177,10 +178,12 @@ for k in keep_list.keys():
                                 legend=None, 
                                 cutoff=None, 
                                 figsize=(FIGSIZE[0],2*FIGSIZE[1]), 
-                                save=save,
+                                save=False,
                                 legend_loc=LEGEND_LOC,
                                 legend_outside=LEGEND_OUTSIDE,
                                 )
+        axs[1].set_ylim(bottom=0.3, top=0.8)    
+        fig.savefig('output/plots/' + R.exp_id_str + f"/stability_lr_train_loss_val_score.pdf")
 
         #%% plots the adaptive step size
         ### THIS PLOT IS ONLY RELEVANT FOR METHODS WITH ADAPTIVE STEP SIZE

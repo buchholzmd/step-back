@@ -4,16 +4,12 @@
     "model_kwargs": {"norm": "group_norm"},
     "loss_func": "cross_entropy",
     "score_func": "cross_entropy_accuracy",
-    "opt": [{"name": "sgd-m", "lr": [0.01, 0.03162, 0.1, 0.3162, 1, 3.162], "weight_decay": 1e-4, "momentum": 0.9, "dampening": 0.9, "lr_schedule": "wsd", "warmup": 0.05, "cooldown": 0.05},
-            {"name": "schedule-free", "lr": [0.01, 0.03162, 0.1, 0.3162, 1, 3.162, 10], "weight_decay": 1e-4, "momentum": 0.9, "lr_schedule": "wsd", "warmup": 0.05},
-            {"name": "polyak", "lr": [0.01, 0.03162, 0.1, 0.3162, 1, 3.162], "weight_decay": 1e-4, "momentum": 0.9, "lr_schedule": "wsd", "warmup": 0.05, "cooldown": 0.05},
-            {"name": "schedulet", "lr": [0.01, 0.03162, 0.1, 0.3162, 1, 3.162], "weight_decay": 1e-4, "momentum": 0.9, "lr_schedule": "wsd", "warmup": 0.05, "cooldown": 0.05},
-            {"name": "adamw", "lr": [1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1], "weight_decay": 1e-4, "dampening": 0.9, "lr_schedule": "wsd", "warmup": 0.05, "cooldown": 0.05},
-            {"name": "schedule-free-adam", "lr": [1e-5, 1e-4, 1e-3, 1e-2, 1e-1], "weight_decay": 1e-4, "lr_schedule": "wsd", "warmup": 0.05},
-            {"name": "polyak-adam", "lr": [1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1], "weight_decay": 1e-4, "lr_schedule": "wsd", "warmup": 0.05, "cooldown": 0.05},
-            {"name": "schedulet-adam", "lr": [1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1], "weight_decay": 1e-4, "lr_schedule": "wsd", "warmup": 0.05, "cooldown": 0.05}
+    "opt": [{"name": "sgd-m", "lr": [0.01, 0.1, 1, 10], "weight_decay": 1e-4, "momentum": 0.9, "dampening": 0.9, "lr_schedule": "wsd", "warmup": 0.05, "cooldown": 0.25},
+            {"name": "schedule-free", "lr": [0.01, 0.1, 1, 10], "weight_decay": 1e-4, "momentum": 0.9, "lr_schedule": "wsd", "warmup": 0.05},
+            {"name": "polyak", "lr": [0.01, 0.1, 1, 10], "weight_decay": 1e-4, "momentum": 0.9, "lr_schedule": "wsd", "warmup": 0.05, "cooldown": 0.25},
+            {"name": "schedulet", "lr": [0.01, 0.1, 1, 10], "weight_decay": 1e-4, "momentum": 0.9, "lr_schedule": "wsd", "warmup": 0.05, "cooldown": 0.25}
         ],
     "batch_size": 128,
-    "max_epoch": 300,
-    "n_runs": 3
+    "max_epoch": 50,
+    "n_runs": 5
 }

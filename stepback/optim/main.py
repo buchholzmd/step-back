@@ -277,6 +277,25 @@ def get_two_phase_lambda(transition, total_steps, base_rate, slope):
             return (base_rate + slope * (math.exp((step - stable_steps) / total_steps) - 1)) / base_rate
     return lr_lambda
 
+def optimal_lr_sched(lrs, grad_norms, current_grad_norm, init_loss, best_loss, init_params, best_params, use_c = True):
+    """
+    Optimal learning rate schedule function.
+    """
+    lrs_sum  = sum(lrs)
+    lrs_grad = sum([(lr * gn) ** 2 for lr, gn in zip(lrs, grad_norms)])
+    
+    dist_from_init = torch.linalg.norm(init_params - best_params)**2
+    suboptimality  = init_loss - best_loss
+
+    if use_c:
+        c_star = 0.5*dist_from_init + lrs[0]*suboptimality
+    else:
+        c_star = torch.tensor(0.0)
+
+    optimal_lr = torch.sqrt(lrs_sum ** 2 + (2*c_star + lrs_grad) / current_grad_norm**2) - lrs_sum
+
+    return optimal_lr
+
 def get_scheduler(config: dict, opt: torch.optim.Optimizer) -> torch.optim.lr_scheduler._LRScheduler:
     """
     Main function mapping to a learning rate scheduler.
@@ -326,6 +345,9 @@ def get_scheduler(config: dict, opt: torch.optim.Optimizer) -> torch.optim.lr_sc
 
         lr_fun = get_two_phase_lambda(transition=transition, total_steps=total_steps, base_rate=base_rate, slope=slope)
         scheduler = LambdaLR(opt, lr_lambda=lr_fun)
+
+    elif 'optimal' in name:
+        scheduler = None
         
     else:
         raise ValueError(f"Unknown learning rate schedule name {name}.")

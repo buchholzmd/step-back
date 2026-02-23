@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 
 from .datasets.main import get_dataset, infer_shapes
 from .models.main import get_model
-from .optim.main import get_optimizer, get_scheduler
+from .optim.main import get_optimizer, get_scheduler, optimal_lr_sched
 from .metrics import Loss
 
 from .utils import l2_norm, grad_norm, ridge_opt_value, logreg_opt_value
@@ -56,7 +56,6 @@ class Base:
         self.num_workers = num_workers
         self.data_parallel = data_parallel
         self.verbose = verbose
-        self.best_loss = np.inf
         
         model_dir = f"output/{self.config['dataset']}_{self.config['model']}"
 
@@ -153,8 +152,11 @@ class Base:
             devices = [int(d) for d in self.data_parallel]
             self.model = torch.nn.DataParallel(self.model, device_ids=devices)
 
-        init_params = {name: p.detach().cpu().numpy().flatten() for name, p in self.model.named_parameters()}
-        np.savez(f'{self.output_dir}/init_model_params.npz', **init_params)
+        self.init_params = {name: p.detach().cpu().numpy().flatten() for name, p in self.model.named_parameters()}
+        self.best_params = {name: p.detach().cpu().numpy().flatten() for name, p in self.model.named_parameters()}
+        np.savez(f'{self.output_dir}/init_model_params.npz', **self.init_params)
+
+        self.grad_norm_history = []
 
         return
         
@@ -172,6 +174,8 @@ class Base:
 
         #============ Loss function ========
         self.training_loss = Loss(name=self.config['loss_func'], backwards=True)
+        self.init_loss = None
+        self.best_loss = np.inf
         
         #============ Optimizer ============
         self.config['opt']['total_steps'] = self.config['max_epoch'] * len(self.train_loader)
@@ -179,7 +183,13 @@ class Base:
         
         self._init_opt(opt_obj, hyperp)
         
+        self.lr_sched = self.config['opt'].get('lr_schedule')
         self.sched = get_scheduler(self.config['opt'], self.opt)
+
+        if self.config['opt'].get('lr_schedule') == 'optimal':
+            self.optimal_lr_sched = optimal_lr_sched
+        else:
+            self.optimal_lr_sched = None
         
         #============ Results ==============
         opt_val = self._compute_opt_value()
@@ -193,23 +203,30 @@ class Base:
     def _init_opt(self, opt_obj, hyperp, opt_name=None):
         """Initializes the opt object. If your optimizer needs custom commands, add them here."""
         
-        self.opt = opt_obj(params=self.model.parameters(), **hyperp)     
+        self.opt = opt_obj(params=self.model.parameters(), **hyperp)
+
+        self.lr_history = [self.config['opt']['lr']]
         
         print(self.opt)        
         return
     
     def run(self):
         start_time = str(datetime.datetime.now())
-        score_list, batch_list = [], []
+        score_list, batch_list = [], [{'learning_rate': self.config['opt']['lr']}]
         self._epochs_trained = 0
         
         for epoch in range(self.config['max_epoch']):
-            
-            print(f"Epoch {epoch}, current learning rate", self.sched.get_last_lr()[0])
+            if self.optimal_lr_sched is not None:
+                print(f"Epoch {epoch}, current learning rate", batch_list[-1]['learning_rate'])
+            else:
+                print(f"Epoch {epoch}, current learning rate", self.sched.get_last_lr()[0])
 
             # Record metrics
             score_dict = {'epoch': epoch}
-            score_dict['learning_rate'] = self.sched.get_last_lr()[0] # must be stored before sched.step()
+            if self.optimal_lr_sched is not None:
+                score_dict['learning_rate'] = batch_list[-1]['learning_rate']
+            else:
+                score_dict['learning_rate'] = self.sched.get_last_lr()[0] # must be stored before sched.step()
                            
             # Train one epoch
             s_time = time.time()
@@ -296,21 +313,10 @@ class Base:
             if len(out.shape) <= 1:
                 warnings.warn(f"Shape of model output is {out.shape}, recommended to have shape [batch_size, ..].")
             
-            closure = lambda: self.training_loss.compute(out, targets)
-            
             # see optim/README.md for explanation 
             if hasattr(self.opt,"prestep"):
                 ind = batch['ind'].to(device=self.device)           # indices of batch members
                 self.opt.prestep(out, targets, ind, self.training_loss.name)
-
-            # Here the magic happens
-            loss_val = self.opt.step(closure=closure)
-
-            if loss_val < self.best_loss:
-                self.best_loss = loss_val
-                
-                best_params = {name: p.detach().cpu().numpy().flatten() for name, p in self.model.named_parameters()}
-                np.savez(f'{self.output_dir}/best_model_params.npz', **best_params)
             
             if self.device != torch.device('cpu'):
                 torch.cuda.synchronize()
@@ -318,21 +324,84 @@ class Base:
             t0 = time.time()                                        # model timing ends
             timings_model.append(t0-t1)
 
-            global_idx = batch_idx + self._epochs_trained * len(self.train_loader)
-        
             # Record metrics
+            global_idx = batch_idx + self._epochs_trained * len(self.train_loader)
             batch_dict = {'iteration': global_idx}
-            batch_dict['learning_rate'] = self.sched.get_last_lr()[0] # must be stored before sched.step()
-                           
-            # Record metrics     
-            batch_dict['model_norm'] = l2_norm(self.model)        
-            batch_dict['grad_norm'] = grad_norm(self.model)
-            batch_dict['train_loss'] = loss_val.item() if hasattr(loss_val, 'item') else loss_val        
             
-            pbar.set_description(f'Training - loss={loss_val:.3f} - time data: last={timings_dataloader[-1]:.3f},(mean={np.mean(timings_dataloader):.3f}) - time model+step: last={timings_model[-1]:.3f}(mean={np.mean(timings_model):.3f})')
+            # Update learning rate
+            if self.optimal_lr_sched is not None:
+                if self.training_loss._flatten_out:
+                    out = out.view(-1)
+                
+                if self.training_loss._flatten_target:
+                    targets = targets.view(-1)
+                    
+                loss = self.training_loss.criterion(out, targets)
+                loss_val = loss.item()
 
-            # update learning rate             
-            self.sched.step()
+                if loss.requires_grad:
+                    loss.backward()
+
+                # Use custom LR function
+                current_grad_norm = grad_norm(self.model)
+                if self.grad_norm_history == []:
+                    self.grad_norm_history = [current_grad_norm]
+
+                if self.init_loss is None:
+                    self.init_loss = loss_val
+
+                if loss_val < self.best_loss:
+                    self.best_loss = loss_val
+                    
+                    self.best_params = {name: p.detach().cpu().numpy().flatten() for name, p in self.model.named_parameters()}
+                    np.savez(f'{self.output_dir}/best_model_params.npz', **self.best_params)
+
+                init_params = torch.cat([torch.tensor(self.init_params[k].ravel()) for k in self.init_params])
+                best_params = torch.cat([torch.tensor(self.best_params[k].ravel()) for k in self.best_params])
+                new_lr = self.optimal_lr_sched(self.lr_history,
+                                               self.grad_norm_history,
+                                               current_grad_norm,
+                                               self.init_loss,
+                                               self.best_loss, 
+                                               init_params,
+                                               best_params,
+                                               use_c=False
+                )
+                for param_group in self.opt.param_groups:
+                    param_group['lr'] = new_lr
+
+                self.lr_history += [new_lr.item()]
+                self.grad_norm_history += [current_grad_norm]
+
+                # Here the magic happens
+                self.opt.step()
+
+                batch_dict['learning_rate'] =  new_lr.item()
+            else:
+                closure = lambda: self.training_loss.compute(out, targets)
+
+                # Here the magic happens
+                loss_val = self.opt.step(closure=closure)
+
+                if self.init_loss is None:
+                    self.init_loss = loss_val
+
+                if loss_val < self.best_loss:
+                    self.best_loss = loss_val
+                    
+                    self.best_params = {name: p.detach().cpu().numpy().flatten() for name, p in self.model.named_parameters()}
+                    np.savez(f'{self.output_dir}/best_model_params.npz', **self.best_params)
+
+                # Use standard scheduler
+                self.sched.step()
+                batch_dict['learning_rate'] = self.sched.get_last_lr()[0] # must be stored before sched.step()
+              
+            pbar.set_description(f'Training - loss={loss_val:.3f} - time data: last={timings_dataloader[-1]:.3f},(mean={np.mean(timings_dataloader):.3f}) - time model+step: last={timings_model[-1]:.3f}(mean={np.mean(timings_model):.3f})')
+            
+            # Record metrics   
+            batch_dict['model_norm'] = l2_norm(self.model) 
+            batch_dict['grad_norm']  = current_grad_norm
+            batch_dict['train_loss'] = loss_val.item() if hasattr(loss_val, 'item') else loss_val
 
             batch_list += [batch_dict]
 

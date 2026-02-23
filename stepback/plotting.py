@@ -14,12 +14,36 @@ from .utils import SCORE_NAMES, AES, id_to_dict, create_label
 # Need to know where to call the following:
 ## set_plot_aesthetics()
 ## do_fancy_legend()
-def set_plot_aesthetics():
-    plt.rcParams["font.family"] = "serif"
-    plt.rcParams['font.size'] = 12
-    plt.rcParams['axes.linewidth'] = 1.5
-    plt.rc('text', usetex=True)
-    plt.rc('legend',fontsize=10)
+def set_plot_aesthetics(latex=True):
+    # if latex:
+    #     plt.rcParams['mathtext.default'] = 'regular'
+    #     plt.rc('text', usetex=True)
+    #     plt.rcParams['text.latex.preamble'] = r'\usepackage{amsfonts}'
+    # else:
+        
+    plt.rc('text', usetex=False)
+
+    # plt.rcParams['font.family'] = 'serif'
+    # plt.rcParams['font.size'] = 14
+    # plt.rcParams['font.weight'] = 'semibold'
+    
+    plt.rcParams['axes.linewidth'] = 3
+    # plt.rcParams['axes.labelsize'] = 22
+    # plt.rcParams['axes.labelweight'] = 'semibold'
+
+    # plt.rcParams['xtick.labelsize'] = 12
+    # plt.rcParams['ytick.labelsize'] = 12
+    # plt.rcParams['xtick.major.size'] = 8
+    # plt.rcParams['ytick.major.size'] = 8
+    # plt.rcParams['xtick.major.width'] = 2
+    # plt.rcParams['ytick.major.width'] = 2
+
+    plt.rcParams['lines.linewidth'] = 4.0
+    # plt.rcParams['lines.linewidth'] = 2.0
+
+    plt.rcParams['figure.dpi'] = 500
+
+    # plt.rcParams['legend.fontsize'] = 14
 
 class HandlerDashedLines(HandlerLineCollection):
     """
@@ -38,6 +62,7 @@ class HandlerDashedLines(HandlerLineCollection):
         ydata = np.full_like(xdata, height / (numlines + 1))
         # for each line, create the line at the proper location
         # and set the dash pattern
+
         for i in range(numlines):
             legline = Line2D(xdata, ydata * (numlines - i) - ydescent)
             self.update_prop(legline, orig_handle, legend)
@@ -66,7 +91,7 @@ class HandlerDashedLines(HandlerLineCollection):
 
 def do_fancy_legend(ax, 
                     labels, 
-                    color_list,
+                    color_list=None,
                     loc='upper right',
                     bbox_to_anchor=None,
                     lw=1.0,
@@ -76,10 +101,19 @@ def do_fancy_legend(ax,
                     **kwargs
     ):
     handles = list()
+
     for _colors in color_list:
-        line = [[(0, 0)]]
-        handles.append(LineCollection(len(_colors)*line, colors=_colors, linewidths=lw))
-        
+        lines = []
+
+        if len(_colors) > 1:
+            for i, color in enumerate(_colors):
+                y_offset = i * 0.3
+                lines.append([(0, y_offset), (1, y_offset)])
+            handles = [LineCollection(lines, colors=color_list, linewidths=lw)]
+
+        else:
+            line = [[(0, 0)]]
+            handles.append(LineCollection(len(_colors)*line, colors=_colors, linewidths=lw))
     
     ax.legend(handles, 
               labels,
@@ -112,6 +146,7 @@ def plot_stability(R,
                    save=False,
                    legend_loc='center left',
                    legend_outside=False,
+                   latex=True
                    ):
     """
     Generates stability plot.
@@ -133,7 +168,7 @@ def plot_stability(R,
         score = [score]
     
 
-    set_plot_aesthetics()
+    set_plot_aesthetics(latex=latex)
     fig, axs = plt.subplots(len(score),1,figsize=figsize)
 
     for j, s in enumerate(score):
@@ -164,6 +199,7 @@ def plot_stability(R,
             
             if legend is None:
                 label = name # default: only show method name
+                
             elif legend == 'full':
                 label = name + ", " + ", ".join([k+"="+v for k,v in zip(df.index.names,m) if (v!='none') and (k!='name')]) # show all keys
             else:
@@ -205,6 +241,7 @@ def plot_stability(R,
         ax.set_ylabel(SCORE_NAMES.get(s, s))
         ax.set_xscale('log')
         ax.grid(axis='y', lw=0.2, ls='--', zorder=-10)
+    
 
         # xlabel only in last row
         if j+1 < len(score):
@@ -212,9 +249,15 @@ def plot_stability(R,
     
     labels =  labels = [n for n in df.index.get_level_values('name').unique()]
     color_list = [[R.aes.get(n, R.aes['default'])['color']] for n in labels]
+
+    for idx, label in enumerate(labels):
+        if label == 'polyak':
+            labels[idx] = rf'Theoretical $c_t$'
+        elif label == 'schedule-free':
+            labels[idx] = rf'Practical $c_t$'
     
     bbox_to_anchor = (1, 0.5) if legend_outside else None
-    do_fancy_legend(ax, labels, color_list, loc=legend_loc, bbox_to_anchor=bbox_to_anchor)
+    do_fancy_legend(ax, labels, color_list, loc=legend_loc, bbox_to_anchor=bbox_to_anchor, handlelength=1.5, handleheight=1.5, lw=3.0)
     # fig.subplots_adjust(right=0.75)  # Add this line
     # if legend is not None:
     #     # legend has all specific opt arguments

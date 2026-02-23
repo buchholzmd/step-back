@@ -4,10 +4,9 @@
     "model_kwargs": {"norm": "group_norm"},
     "loss_func": "cross_entropy",
     "score_func": "cross_entropy_accuracy",
-    "opt": [{"name": "schedule-free", "lr": [0.1, 1, 5], "weight_decay": 2e-4, "momentum": 0.9, "lr_schedule": "wsd", "warmup": 0.05},
-            {"name": "schedulet", "lr": [0.001, 0.01, 0.1, 1, 5], "weight_decay": 2e-4, "momentum": 0.9, "lr_schedule": "wsd", "warmup": 0.05, "cooldown": 0.05}
+    "opt": [{"name": "schedulet", "lr": [0.001, 0.01, 0.1, 1, 5], "weight_decay": 2e-4, "momentum": 0.9, "lr_schedule": "wsd", "warmup": 0.05, "cooldown": 0.05}
         ],
     "batch_size": 64,
     "max_epoch": 300,
-    "n_runs": 3
-    }
+    "n_runs": 1
+}

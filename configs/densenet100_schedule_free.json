@@ -1,0 +1,15 @@
+{
+    "dataset": "cifar100",
+    "model": "densenet100",
+    "model_kwargs": {"norm": "group_norm"},
+    "loss_func": "cross_entropy",
+    "score_func": "cross_entropy_accuracy",
+    "opt": [{"name": "sgd-m", "lr": [0.01, 0.1, 1, 10], "weight_decay": 2e-4, "momentum": 0.9, "dampening": 0.9, "lr_schedule": "wsd", "warmup": 0.05, "cooldown": 0.05},
+            {"name": "schedule-free", "lr": [0.01, 0.1, 1, 10], "weight_decay": 2e-4, "momentum": 0.9, "lr_schedule": "wsd", "warmup": 0.05},
+            {"name": "polyak", "lr": [0.01, 0.1, 1, 10], "weight_decay": 2e-4, "momentum": 0.9, "lr_schedule": "wsd", "warmup": 0.05, "cooldown": 0.05},
+            {"name": "schedulet", "lr": [0.01, 0.1, 1, 10], "weight_decay": 2e-4, "momentum": 0.9, "lr_schedule": "wsd", "warmup": 0.05, "cooldown": 0.05}
+        ],
+    "batch_size": 64,
+    "max_epoch": 100,
+    "n_runs": 1
+    }
