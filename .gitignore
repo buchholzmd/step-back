@@ -4,8 +4,9 @@
 data/
 # Checkpoints
 output/checkp/
-output/
-
+output/**
+!output/**/
+output/**/**
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
