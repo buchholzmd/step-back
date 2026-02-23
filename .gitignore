@@ -4,7 +4,7 @@
 data/
 # Checkpoints
 output/checkp/
-
+output/
 
 
 # Byte-compiled / optimized / DLL files
