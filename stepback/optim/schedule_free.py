@@ -56,7 +56,7 @@ class SGDScheduleFree(torch.optim.Optimizer):
                  warmup_steps: int = 0,
                  r: float = 0.0,
                  weight_lr_power: float = 2,
-                 M=0.0,
+                 M=1.0,
                  polyak_lambda=None,
                  polyak_lb=0.0,
                  foreach: Optional[bool] = hasattr(torch, "_foreach_mul_"),
@@ -191,16 +191,21 @@ class SGDScheduleFree(torch.optim.Optimizer):
                 if 'polyak-sps' in group['mode']:
                     # compute averaged grads
                     grad_norm = sum((g**2).sum() for g in grad)
+                    if not torch.is_tensor(group['M']):
+                        M = group['M'] = torch.tensor([group['M']]).to(grad_norm.device)
+                    else:
+                        M = group['M']
+
                     if group['polyak_lambda'] is not None:
                         M = group['M'] = group['polyak_lambda'] * group['M'] + (1-group['polyak_lambda']) * grad_norm
-                    if self.M <= 0:
-                        self.M = grad_norm
+                    if M <= 0:
+                        M = group['M'] = grad_norm
                     
                     loss_gap = loss - group['polyak_lb']
                     proj_gap = sum(torch.sum(g * (zi - yi)) for g, zi, yi in zip(grad, z, y))
-                    lr = torch.clamp(loss_gap +  proj_gap, min=0) / torch.max(grad_norm, M)
+                    lr = torch.clamp(loss_gap +  proj_gap, min=0) / torch.max(grad_norm, M).item()
 
-                    group['lr'] = lr
+                    group['lr'] = lr.item()
 
                     if 'polyak_events' not in self.state:
                         self.state['polyak_events'] = []
@@ -210,7 +215,7 @@ class SGDScheduleFree(torch.optim.Optimizer):
                                 'grad_norm': grad_norm.item(),
                                 'M': M.item(),
                                 'used_grad_norm': grad_norm < M,
-                                'lr': lr.item()
+                                'lr': group['lr']
                     })
                 
                 # Apply weight decay
@@ -237,16 +242,21 @@ class SGDScheduleFree(torch.optim.Optimizer):
                     if 'polyak-sps' in group['mode']:
                         # compute averaged grads
                         grad_norm = (grad**2).sum()
+                        if not torch.is_tensor(group['M']):
+                            M = group['M'] = torch.tensor([group['M']]).to(p.device)
+                        else:
+                            M = group['M']
+
                         if group['polyak_lambda'] is not None:
                             M = group['M'] = group['polyak_lambda'] * group['M'] + (1-group['polyak_lambda']) * grad_norm
-                        if self.M <= 0:
-                            self.M = grad_norm
-                            
+                        if M <= 0:
+                            M = group['M'] = grad_norm
+
                         loss_gap = loss - group['polyak_lb']
                         proj_gap = torch.sum(grad * (z - y))
-                        lr = torch.clamp(loss_gap + proj_gap, min=0) / torch.max(grad_norm, M)
+                        lr = torch.clamp(loss_gap + proj_gap, min=0) / torch.max(grad_norm, M).item()
 
-                        group['lr'] = lr
+                        group['lr'] = lr.item()
 
                         if 'polyak_events' not in self.state:
                             self.state['polyak_events'] = []
@@ -256,7 +266,7 @@ class SGDScheduleFree(torch.optim.Optimizer):
                                 'grad_norm': grad_norm.item(),
                                 'M': M.item(),
                                 'used_grad_norm': grad_norm < M,
-                                'lr': lr.item()
+                                'lr': group['lr']
                         })
 
                     # Apply weight decay

@@ -187,7 +187,8 @@ def get_optimizer(opt_config: dict) -> Tuple[torch.optim.Optimizer, dict]:
                   'warmup_steps': opt_config.get('warmup_steps', 0),
                   'r': opt_config.get('r', 0),
                   'weight_lr_power': opt_config.get('weight_lr_power', 2.0),
-                  'polyak_lambda': opt_config.get('polyak_lambda', 0.9),
+                  'M': opt_config.get('M', 1.0),
+                  'polyak_lambda': opt_config.get('polyak_lambda', None),
                   'polyak_lb': opt_config.get('polyak_lb', 0.0),
                   'mode': name,
                   }

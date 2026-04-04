@@ -4,10 +4,10 @@
     "model_kwargs": {"norm": "group_norm"},
     "loss_func": "cross_entropy",
     "score_func": "cross_entropy_accuracy",
-    "opt": [{"name": "sgd-m", "lr": [0.01, 0.1, 1, 10], "weight_decay": 1e-4, "momentum": 0.9, "dampening": 0.9, "lr_schedule": "wsd", "warmup": 0.05, "cooldown": 0.25},
-            {"name": "schedule-free", "lr": [0.01, 0.1, 1, 10], "weight_decay": 1e-4, "momentum": 0.9, "lr_schedule": "wsd", "warmup": 0.05},
-            {"name": "polyak-sps", "lr": [0.01, 0.1, 1, 10], "weight_decay": 1e-4, "momentum": 0.9, "polyak_lambda": 0.9,  "polyak_lb": 0.0, "lr_schedule": "constant"},
-            {"name": "polyak-sps", "lr": [0.01, 0.1, 1, 10], "weight_decay": 1e-4, "momentum": 0.9, "polyak_lambda": 0.99, "polyak_lb": 0.0, "lr_schedule": "constant"}
+    "opt": [{"name": "polyak-sps", "lr": [0.01, 0.1, 1, 10], "weight_decay": 1e-4, "momentum": 0.9, "polyak_lb": 0.0, "lr_schedule": "constant"},
+            {"name": "polyak-sps", "lr": [0.01, 0.1, 1, 10], "weight_decay": 1e-4, "momentum": 0.9, "polyak_lb": 0.0, "lr_schedule": "constant"},
+            {"name": "polyak-sps", "lr": [0.01, 0.1, 1, 10], "weight_decay": 1e-4, "momentum": 0.9, "M": 1.0, "polyak_lambda": 0.9,  "polyak_lb": 0.0, "lr_schedule": "constant"},
+            {"name": "polyak-sps", "lr": [0.01, 0.1, 1, 10], "weight_decay": 1e-4, "momentum": 0.9, "M": 1.0, "polyak_lambda": 0.99, "polyak_lb": 0.0, "lr_schedule": "constant"}
         ],
     "batch_size": 128,
     "max_epoch": 50,
