@@ -341,9 +341,9 @@ class Base:
 
                 if loss.requires_grad:
                     loss.backward()
-
-                # Use custom LR function
+                
                 current_grad_norm = grad_norm(self.model)
+                # Use custom LR function
                 if self.grad_norm_history == []:
                     self.grad_norm_history = [current_grad_norm]
 
@@ -358,7 +358,6 @@ class Base:
 
                 init_params = torch.cat([torch.tensor(self.init_params[k].ravel()) for k in self.init_params])
                 best_params = torch.cat([torch.tensor(self.best_params[k].ravel()) for k in self.best_params])
-                optimal_lr_sched(lrs, grad_norms, current_grad_norm, init_loss, best_loss, init_params, best_params, use_c = True):
                 
                 new_lr = self.optimal_lr_sched(self.lr_history,
                                                self.grad_norm_history,
@@ -385,6 +384,8 @@ class Base:
                 # Here the magic happens
                 loss_val = self.opt.step(closure=closure)
 
+                current_grad_norm = grad_norm(self.model)
+                
                 if self.init_loss is None:
                     self.init_loss = loss_val
 
@@ -401,7 +402,7 @@ class Base:
             pbar.set_description(f'Training - loss={loss_val:.3f} - time data: last={timings_dataloader[-1]:.3f},(mean={np.mean(timings_dataloader):.3f}) - time model+step: last={timings_model[-1]:.3f}(mean={np.mean(timings_model):.3f})')
             
             # Record metrics   
-            batch_dict['model_norm'] = l2_norm(self.model) 
+            batch_dict['model_norm'] = l2_norm(self.model)
             batch_dict['grad_norm']  = current_grad_norm
             batch_dict['train_loss'] = loss_val.item() if hasattr(loss_val, 'item') else loss_val
 

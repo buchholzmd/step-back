@@ -168,7 +168,7 @@ def get_optimizer(opt_config: dict) -> Tuple[torch.optim.Optimizer, dict]:
                   'mode': name,
                   }
     
-    elif name == 'polyak':
+    elif name == 'pr-avg':
         opt_obj = SGDScheduleFree
         hyperp = {'lr': opt_config.get('lr', 1.0),
                   'momentum': opt_config.get('momentum', 0.9),
@@ -176,6 +176,19 @@ def get_optimizer(opt_config: dict) -> Tuple[torch.optim.Optimizer, dict]:
                   'warmup_steps': opt_config.get('warmup_steps', 0),
                   'r': opt_config.get('r', 0),
                   'weight_lr_power': opt_config.get('weight_lr_power', 2.0),
+                  'mode': name,
+                  }
+
+    elif name == 'polyak-sps':
+        opt_obj = SGDScheduleFree
+        hyperp = {'lr': opt_config.get('lr', 1.0),
+                  'momentum': opt_config.get('momentum', 0.9),
+                  'weight_decay': opt_config.get('weight_decay', 0),
+                  'warmup_steps': opt_config.get('warmup_steps', 0),
+                  'r': opt_config.get('r', 0),
+                  'weight_lr_power': opt_config.get('weight_lr_power', 2.0),
+                  'polyak_lambda': opt_config.get('polyak_lambda', 0.9),
+                  'polyak_lb': opt_config.get('polyak_lb', 0.0),
                   'mode': name,
                   }
 
@@ -203,7 +216,7 @@ def get_optimizer(opt_config: dict) -> Tuple[torch.optim.Optimizer, dict]:
                   'mode': name,
                   }
         
-    elif name == 'polyak-adam':
+    elif name == 'pr-avg-adam':
         opt_obj = AdamWScheduleFree
         hyperp = {'lr': opt_config.get('lr', 0.0025),
                   'betas': opt_config.get('betas', (0.9, 0.999)),

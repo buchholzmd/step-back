@@ -137,7 +137,117 @@ class SPS(torch.optim.Optimizer):
         grad_norm = torch.sqrt(grad_norm)
         return grad_norm, grad_dot_w
     
+class SGDScheduleFreeSPS(torch.optim.Optimizer):
+    # TODO: implement this as a closure
+    def __init__(self, params, beta=0.9, ell_star=0.0, M=1.0):
+        defaults = dict(beta=beta, ell_star=ell_star, M=M, train_mode=True)
+        super().__init__(params, defaults)
 
+        self.beta = beta
+        self.ell_star = ell_star
+        self.M = M
+        self.k = 0
 
+        self.ss = 0
+        self.grad_norm = 0
 
+        self.extra = []
+        self.tru = 0
+        self.denom = 0
 
+    def eval(self):
+        for group in self.param_groups:
+            train_mode = group['train_mode']
+            if train_mode:
+                for p in group['params']:
+                    state = self.state[p]
+                    if 'z' in state:
+                        # Set p.data to x
+                        # Until now we are in train mode which means that p stores y, ie we can consider p=y
+                        p.data.lerp_(end=state['z'], weight=1-1/self.beta) # p = 1/b*p+(1-1/b)*z
+                        # x^t = 1/\b*y^t+(1-1/\b)*z
+                group['train_mode'] = False
+
+    def train(self):
+        for group in self.param_groups:
+            train_mode = group['train_mode']
+            if not train_mode:
+                for p in group['params']:
+                    state = self.state[p]
+                    if 'z' in state:
+                        # Set p.data to y
+                        # Until now we are in eval mode which means that p stores x, ie we can consider p=x
+                        p.data.lerp_(end=state['z'], weight=1-self.beta) # p = b*p+(1-b)*z
+                        # y^t = \b*x^t+(1-\b)*z^t
+                group['train_mode'] = True
+
+    def step(self, loss):
+        ckp1 = 1/(self.k+1)
+        self.k += 1
+
+        _norm = 0.
+        _dot = 0.
+
+        for group in self.param_groups:
+            if not group['train_mode']:
+                raise Exception("Not in train mode!")
+            
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+
+                y = p.data # y = y^t
+                grad = p.grad.data # grad = \nabla f_i(y^t)
+                state = self.state[p]
+
+                if 'z' not in state:
+                    state['z'] = torch.clone(y)
+                z = state['z']
+
+                _dot += torch.sum(torch.mul(grad, z-p.data))
+                _norm += torch.sum(torch.mul(grad, grad))
+        
+        self.grad_norm = _norm
+
+        if self.M <= 0:
+            sps = (max(loss.item()-self.ell_star+_dot, 0)/_norm).item()
+            self.M = _norm
+        else:
+            sps = (max(loss.item()-self.ell_star+_dot, 0)/max(self.M, _norm)).item()
+            self.denom = max(self.M, _norm).item()
+            if max(self.M, _norm) == _norm:
+                self.tru += 1
+                self.denom = _norm.item()
+            else:
+                self.denom = self.M
+        
+        self.ss = sps
+        self.extra = [self.tru, self.denom]
+
+        for group in self.param_groups:
+            if not group['train_mode']:
+                raise Exception("Not in train mode!")
+
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+
+                y = p.data # y = y^t
+                grad = p.grad.data # grad = \nabla f_i(y^t)
+                state = self.state[p]
+
+                if 'z' not in state:
+                    state['z'] = torch.clone(y)
+                z = state['z']
+
+                # These operations update y in-place,
+                # without computing x explicitly.
+                y.lerp_(end=z, weight=ckp1) # y = (1-c_{t+1})y + c_{t+1}z
+                y.add_(grad, alpha=sps*(self.beta*(1-ckp1)-1)) # y = y + \g*(\b(1-c_{t+1})-1)\nabla f_i(y^t)
+                # y^{t+1} = (1-c_{t+1})y^t + c_{t+1}z^t + \g*(\b(1-c_{t+1})-1)\nabla f_i(y^t)
+
+                # SGD step
+                z.sub_(grad, alpha=sps) # z = z - \g\nabla f_i(y^t)
+                # z^{t+1} = z^t - \g\nabla f_i(y^t)
+
+        return loss

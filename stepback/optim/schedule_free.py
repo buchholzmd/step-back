@@ -46,7 +46,7 @@ class SGDScheduleFree(torch.optim.Optimizer):
         mode (String): Determines the setting of the weights (c_t's) based on
             the original paper ("schedule-free"), 
             theory ("schedulet"), or 
-            Polyak-Rupert averaging ("polyak")
+            Polyak-Rupert averaging ("pr-avg")
     """
     def __init__(self,
                  params: ParamsT,
@@ -56,6 +56,9 @@ class SGDScheduleFree(torch.optim.Optimizer):
                  warmup_steps: int = 0,
                  r: float = 0.0,
                  weight_lr_power: float = 2,
+                 M=0.0,
+                 polyak_lambda=None,
+                 polyak_lb=0.0,
                  foreach: Optional[bool] = hasattr(torch, "_foreach_mul_"),
                  mode: str = "schedule-free"
                  ):
@@ -77,6 +80,9 @@ class SGDScheduleFree(torch.optim.Optimizer):
                         scheduled_lr=0.0,
                         weight_lr_power=weight_lr_power,
                         weight_decay=weight_decay,
+                        M=M,
+                        polyak_lambda=polyak_lambda,
+                        polyak_lb=polyak_lb,
                         foreach=foreach,
                         mode=mode)
         super().__init__(params, defaults)
@@ -147,12 +153,13 @@ class SGDScheduleFree(torch.optim.Optimizer):
 
             assert(group['mode'] in ['schedule-free', 
                                      'schedulet', 
-                                     'polyak',
+                                     'pr-avg',
+                                     'polyak-sps',
                                      'schedule-free-adam', 
                                      'schedulet-adam', 
-                                     'polyak-adam'])
+                                     'pr-avg-adam'])
             
-            if 'schedule-free' in group['mode']:
+            if 'schedule-free' in group['mode'] or 'polyak-sps' in group['mode']:
                 weight = ((k+1)**r) * (lr_max**weight_lr_power)
                 weight_sum = group['weight_sum'] = group['weight_sum'] + weight
 
@@ -168,7 +175,7 @@ class SGDScheduleFree(torch.optim.Optimizer):
                     ckp1 = weight/weight_sum
                 except ZeroDivisionError:
                     ckp1 = 0
-            elif 'polyak' in group['mode']:
+            elif 'pr-avg' in group['mode']:
                 ckp1 = 1/(k+1)
 
             active_p = [p for p in group['params'] if p.grad is not None]
@@ -181,6 +188,31 @@ class SGDScheduleFree(torch.optim.Optimizer):
                 y, grad, z = zip(*[(p, p.grad, self.state[p]['z']) 
                                 for p in active_p])
 
+                if 'polyak-sps' in group['mode']:
+                    # compute averaged grads
+                    grad_norm = sum((g**2).sum() for g in grad)
+                    if group['polyak_lambda'] is not None:
+                        M = group['M'] = group['polyak_lambda'] * group['M'] + (1-group['polyak_lambda']) * grad_norm
+                    if self.M <= 0:
+                        self.M = grad_norm
+                    
+                    loss_gap = loss - group['polyak_lb']
+                    proj_gap = sum(torch.sum(g * (zi - yi)) for g, zi, yi in zip(grad, z, y))
+                    lr = torch.clamp(loss_gap +  proj_gap, min=0) / torch.max(grad_norm, M)
+
+                    group['lr'] = lr
+
+                    if 'polyak_events' not in self.state:
+                        self.state['polyak_events'] = []
+
+                    self.state['polyak_events'].append({
+                                'step': group['k'],
+                                'grad_norm': grad_norm.item(),
+                                'M': M.item(),
+                                'used_grad_norm': grad_norm < M,
+                                'lr': lr.item()
+                    })
+                
                 # Apply weight decay
                 if weight_decay != 0:
                     torch._foreach_add_(grad, y, alpha=weight_decay)
@@ -202,6 +234,31 @@ class SGDScheduleFree(torch.optim.Optimizer):
                     grad = p.grad
                     z = self.state[p]['z']
 
+                    if 'polyak-sps' in group['mode']:
+                        # compute averaged grads
+                        grad_norm = (grad**2).sum()
+                        if group['polyak_lambda'] is not None:
+                            M = group['M'] = group['polyak_lambda'] * group['M'] + (1-group['polyak_lambda']) * grad_norm
+                        if self.M <= 0:
+                            self.M = grad_norm
+                            
+                        loss_gap = loss - group['polyak_lb']
+                        proj_gap = torch.sum(grad * (z - y))
+                        lr = torch.clamp(loss_gap + proj_gap, min=0) / torch.max(grad_norm, M)
+
+                        group['lr'] = lr
+
+                        if 'polyak_events' not in self.state:
+                            self.state['polyak_events'] = []
+
+                        self.state['polyak_events'].append({
+                                'step': group['k'],
+                                'grad_norm': grad_norm.item(),
+                                'M': M.item(),
+                                'used_grad_norm': grad_norm < M,
+                                'lr': lr.item()
+                        })
+
                     # Apply weight decay
                     if weight_decay != 0:
                         grad.add_(y, alpha=weight_decay)
@@ -210,6 +267,7 @@ class SGDScheduleFree(torch.optim.Optimizer):
                     # without computing x explicitly.
                     y.lerp_(end=z, weight=ckp1)
                     y.add_(grad, alpha=lr*(momentum*(1-ckp1)-1))
+                    p.lerp_(end=self.state['z'].to(p.device), weight=1-1/momentum)
 
                     # SGD step
                     z.sub_(grad, alpha=lr)
@@ -253,7 +311,7 @@ class AdamWScheduleFree(torch.optim.Optimizer):
         mode (String): Determines the setting of the weights (c_t's) based on
             the original paper ("schedule-free"), 
             theory ("schedulet"), or 
-            Polyak-Rupert averaging ("polyak")
+            Polyak-Rupert averaging ("pr-avg")
     """
     def __init__(self,
                  params: ParamsT,
@@ -350,10 +408,10 @@ class AdamWScheduleFree(torch.optim.Optimizer):
             
             assert(group['mode'] in ['schedule-free', 
                                      'schedulet', 
-                                     'polyak',
+                                     'pr-avg',
                                      'schedule-free-adam', 
                                      'schedulet-adam', 
-                                     'polyak-adam'])
+                                     'pr-avg-adam'])
             
             if 'schedule-free' in group['mode']:
                 weight = ((k+1)**r) * (lr_max**weight_lr_power)
@@ -371,7 +429,7 @@ class AdamWScheduleFree(torch.optim.Optimizer):
                     ckp1 = weight/weight_sum
                 except ZeroDivisionError:
                     ckp1 = 0
-            elif 'polyak' in group['mode']:
+            elif 'pr-avg' in group['mode']:
                 ckp1 = 1/(k+1)
 
             active_p = [p for p in group['params'] if p.grad is not None]
