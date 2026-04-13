@@ -142,6 +142,7 @@ dmypy.json
 output/*
 output/**/**/*.npz
 output/*/*
+slurm*
 
 # wandb
 wandb/
