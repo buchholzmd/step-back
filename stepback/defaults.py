@@ -12,7 +12,9 @@ _defaults = {'config_dir': 'configs/',
             'num_workers': 0,
             'data_parallel': None,
             'verbose': False,
-            'force_deterministic': False
+            'force_deterministic': False,
+            'wandb': None,
+            'project': 'exp'
             }
 
 DEFAULTS = Dotdict(_defaults)

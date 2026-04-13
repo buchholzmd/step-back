@@ -6,7 +6,7 @@ from typing import Tuple
 
 from .momo import Momo
 from .momo_adam import MomoAdam
-from .sps import SPS
+from .sps import SPS, SGDScheduleFreeSPS
 from .adabound import AdaBoundW
 from .adabelief import AdaBelief
 from .lion import Lion
@@ -123,7 +123,6 @@ def get_optimizer(opt_config: dict) -> Tuple[torch.optim.Optimizer, dict]:
     
     elif name == 'adabound':
         opt_obj = AdaBoundW
-        
         hyperp = {'lr': opt_config.get('lr', 1e-3),
                   'weight_decay': opt_config.get('weight_decay', 0),
                   'betas': opt_config.get('betas', (0.9, 0.999)),
@@ -179,7 +178,7 @@ def get_optimizer(opt_config: dict) -> Tuple[torch.optim.Optimizer, dict]:
                   'mode': name,
                   }
 
-    elif name == 'polyak-sps':
+    elif name == 'schedule-free-polyak':
         opt_obj = SGDScheduleFree
         hyperp = {'lr': opt_config.get('lr', 1.0),
                   'momentum': opt_config.get('momentum', 0.9),
@@ -191,6 +190,15 @@ def get_optimizer(opt_config: dict) -> Tuple[torch.optim.Optimizer, dict]:
                   'polyak_lambda': opt_config.get('polyak_lambda', None),
                   'polyak_lb': opt_config.get('polyak_lb', 0.0),
                   'mode': name,
+                  }
+    
+    elif name == 'schedule-free-sps':
+        opt_obj = SGDScheduleFreeSPS
+        hyperp = {'lr': opt_config.get('lr', 1e-3),
+                  'weight_decay': opt_config.get('weight_decay', 0),
+                  'beta': opt_config.get('beta', 0.9),
+                  'ell_star': opt_config.get('ell_star', 0.),
+                  'M': opt_config.get('M', 1.),
                   }
 
     elif name == 'schedule-free-adam':
@@ -205,7 +213,7 @@ def get_optimizer(opt_config: dict) -> Tuple[torch.optim.Optimizer, dict]:
                   'mode': name,
                   }
 
-    elif name == 'schedulet':
+    elif name == 'schedulet-adam':
         opt_obj = AdamWScheduleFree
         hyperp = {'lr': opt_config.get('lr', 0.0025),
                   'betas': opt_config.get('betas', (0.9, 0.999)),

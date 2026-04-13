@@ -7,6 +7,7 @@ import time
 import datetime
 import warnings
 from typing import Union
+import wandb
 
 from torch.utils.data import DataLoader
 
@@ -25,7 +26,9 @@ class Base:
                  data_dir: str=DEFAULTS.data_dir,
                  num_workers: int=DEFAULTS.num_workers,
                  data_parallel: Union[list, None]=DEFAULTS.data_parallel,
-                 verbose: bool=DEFAULTS.verbose):
+                 verbose: bool=DEFAULTS.verbose,
+                 wandb: bool=DEFAULTS.wandb,
+                 project: str='schedule-free'):
         """The main class. Performs one single training run plus evaluation.
 
         Parameters
@@ -48,6 +51,11 @@ class Base:
         verbose : bool, optional
             Verbose mode flag, by default False.
             If True, prints progress bars, model architecture and other useful information.
+        wandb : str, optional
+            If not None, this specifies the entity for wandb logging. By default None, which means no wandb logging.
+            If specified, enables wandb logging for real-time visualization of metrics during training and validation.
+        project : str, optional
+            wandb project name for grouping experiments, by default 'schedule-free'.
         """
         
         self.name = name
@@ -56,6 +64,9 @@ class Base:
         self.num_workers = num_workers
         self.data_parallel = data_parallel
         self.verbose = verbose
+        self.wandb = wandb
+        self.project = project
+        self.global_step = 0
         
         model_dir = f"output/{self.config['dataset']}_{self.config['model']}"
 
@@ -197,6 +208,20 @@ class Base:
         # Store useful information as summary
         if opt_val is not None:
             self.results['summary']['opt_val'] = opt_val
+        
+        #============ WandB Logging ========
+        if self.wandb is not None:
+            wandb.init(
+                entity=self.wandb,
+                project=self.project,
+                name=f"{self.config['dataset']}_{self.config['model']}_{self.config['opt']['name']}_lr{self.config['opt']['lr']}",
+                config={
+                    'dataset': self.config['dataset'],
+                    'model': self.config['model'],
+                    'optimizer': self.config['opt']['name'],
+                    **self.config['opt']
+                }
+            )
 
         return 
     
@@ -269,6 +294,28 @@ class Base:
                 # Add score_dict to score_list
                 score_list += [score_dict]
                 batch_list += epoch_batch_list
+                
+                # Log epoch metrics to wandb (organized by section)
+                if self.wandb is not None:
+                    # Extract train metrics
+                    train_metrics = {f'train/epoch/{k}': v for k, v in score_dict.items() 
+                                    if k.startswith('train_')}
+                    # Extract val metrics
+                    val_metrics = {f'val/{k}': v for k, v in score_dict.items() 
+                                  if k.startswith('val_')}
+                    # Extract general metrics (epoch, learning_rate, model_norm, grad_norm, etc.)
+                    general_metrics = {f'train/epoch/{k}': v for k, v in score_dict.items() 
+                                      if not k.startswith(('train_', 'val_'))}
+                    
+                    wandb.log({**train_metrics, **val_metrics, **general_metrics}, step=self.global_step)
+                    
+                    # Log optimizer state if available (polyak_events is a list, take the last one)
+                    if self.opt.state.get('polyak_events') and len(self.opt.state['polyak_events']) > 0:
+                        last_event = self.opt.state['polyak_events'][-1]  # Most recent polyak event
+                        opt_metrics = {f'optimizer/polyak/{k}': v for k, v in last_event.items()}
+                        wandb.log(opt_metrics, step=self.global_step)
+                        # Clear for next epoch
+                        self.opt.state['polyak_events'] = []
             
             self._epochs_trained += 1
         
@@ -279,6 +326,11 @@ class Base:
         self.results['batch_history'] = copy.deepcopy(batch_list)
         self.results['summary']['start_time'] = start_time
         self.results['summary']['end_time'] = end_time
+        
+        # ==== finalize wandb ============
+        if self.wandb is not None:
+            wandb.finish()
+        
         return
 
     def train_epoch(self):
@@ -341,9 +393,9 @@ class Base:
 
                 if loss.requires_grad:
                     loss.backward()
-                
-                current_grad_norm = grad_norm(self.model)
+
                 # Use custom LR function
+                current_grad_norm = grad_norm(self.model)
                 if self.grad_norm_history == []:
                     self.grad_norm_history = [current_grad_norm]
 
@@ -379,13 +431,20 @@ class Base:
 
                 batch_dict['learning_rate'] =  new_lr.item()
             else:
-                closure = lambda: self.training_loss.compute(out, targets)
+                # For polyak/SPS optimizers, use unreduced (sum) loss for correct batch scaling
+                opt_name = type(self.opt).__name__.lower()
+                if 'polyak' in opt_name or 'sps' in opt_name:
+                    # unreduced_loss = Loss(self.config['loss_func'], backwards=True, reduction='none')
+                    unreduced_loss = Loss(self.config['loss_func'], backwards=True, reduction='mean')
+                    closure = lambda: unreduced_loss.compute(out, targets)
+                else:
+                    closure = lambda: self.training_loss.compute(out, targets)
 
                 # Here the magic happens
                 loss_val = self.opt.step(closure=closure)
 
                 current_grad_norm = grad_norm(self.model)
-                
+
                 if self.init_loss is None:
                     self.init_loss = loss_val
 
@@ -402,11 +461,17 @@ class Base:
             pbar.set_description(f'Training - loss={loss_val:.3f} - time data: last={timings_dataloader[-1]:.3f},(mean={np.mean(timings_dataloader):.3f}) - time model+step: last={timings_model[-1]:.3f}(mean={np.mean(timings_model):.3f})')
             
             # Record metrics   
-            batch_dict['model_norm'] = l2_norm(self.model)
+            batch_dict['model_norm'] = l2_norm(self.model) 
             batch_dict['grad_norm']  = current_grad_norm
             batch_dict['train_loss'] = loss_val.item() if hasattr(loss_val, 'item') else loss_val
 
             batch_list += [batch_dict]
+            
+            # Log per-iteration batch metrics to wandb
+            if self.wandb is not None:
+                batch_metrics = {f'train/iteration/{k}': v for k, v in batch_dict.items()}
+                wandb.log(batch_metrics, step=self.global_step)
+                self.global_step += 1
 
         return batch_list
     

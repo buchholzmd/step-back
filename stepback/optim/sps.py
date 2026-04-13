@@ -77,7 +77,7 @@ class SPS(torch.optim.Optimizer):
                     p.grad.add_(lmbda * p.data)  # gradients
                     r += (lmbda/2) * (p.data**2).sum() # loss
                     
-            loss.add_(r) 
+            loss.add_(r)
         
                 
         if self.prox:
@@ -139,8 +139,13 @@ class SPS(torch.optim.Optimizer):
     
 class SGDScheduleFreeSPS(torch.optim.Optimizer):
     # TODO: implement this as a closure
-    def __init__(self, params, beta=0.9, ell_star=0.0, M=1.0):
-        defaults = dict(beta=beta, ell_star=ell_star, M=M, train_mode=True)
+    def __init__(self, params, 
+                 lr: float=1e-3,
+                 weight_decay: float=0, 
+                 beta=0.9, 
+                 ell_star=0.0, 
+                 M=1.0):
+        defaults = dict(lr=lr, weight_decay=weight_decay, beta=beta, ell_star=ell_star, M=M, train_mode=True)
         super().__init__(params, defaults)
 
         self.beta = beta
@@ -154,6 +159,9 @@ class SGDScheduleFreeSPS(torch.optim.Optimizer):
         self.extra = []
         self.tru = 0
         self.denom = 0
+        
+        # Initialize polyak_events tracking
+        self.state['polyak_events'] = []
 
     def eval(self):
         for group in self.param_groups:
@@ -181,7 +189,10 @@ class SGDScheduleFreeSPS(torch.optim.Optimizer):
                         # y^t = \b*x^t+(1-\b)*z^t
                 group['train_mode'] = True
 
-    def step(self, loss):
+    def step(self, closure: LossClosure=None) -> OptFloat:
+        with torch.enable_grad():
+            loss = closure()
+                
         ckp1 = 1/(self.k+1)
         self.k += 1
 
@@ -209,6 +220,12 @@ class SGDScheduleFreeSPS(torch.optim.Optimizer):
         
         self.grad_norm = _norm
 
+        # Ensure M is a tensor for consistent comparison
+        if not torch.is_tensor(self.M):
+            self.M = torch.tensor(self.M, device=_norm.device)
+        else:
+            self.M = self.M.to(_norm.device)
+
         if self.M <= 0:
             sps = (max(loss.item()-self.ell_star+_dot, 0)/_norm).item()
             self.M = _norm
@@ -219,10 +236,22 @@ class SGDScheduleFreeSPS(torch.optim.Optimizer):
                 self.tru += 1
                 self.denom = _norm.item()
             else:
-                self.denom = self.M
+                self.denom = self.M.item()
         
         self.ss = sps
         self.extra = [self.tru, self.denom]
+
+        # Track polyak_events for logging
+        if 'polyak_events' not in self.state:
+            self.state['polyak_events'] = []
+        
+        self.state['polyak_events'].append({
+            'step': self.k,
+            'grad_norm': _norm.item(),
+            'M': self.M.item() if torch.is_tensor(self.M) else self.M,
+            'used_grad_norm':int((_norm > self.M).item()),
+            'lr': sps
+        })
 
         for group in self.param_groups:
             if not group['train_mode']:
@@ -239,6 +268,16 @@ class SGDScheduleFreeSPS(torch.optim.Optimizer):
                 if 'z' not in state:
                     state['z'] = torch.clone(y)
                 z = state['z']
+
+                if group['weight_decay'] != 0:
+                    r = 0          
+                    for group in self.param_groups:
+                        lmbda = group['weight_decay']
+                        for p in group['params']:
+                            p.grad.add_(lmbda * p.data)  # gradients
+                            r += (lmbda/2) * (p.data**2).sum() # loss
+                            
+                    loss.add_(r)
 
                 # These operations update y in-place,
                 # without computing x explicitly.

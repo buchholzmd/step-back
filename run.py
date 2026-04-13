@@ -23,6 +23,8 @@ parser.add_argument('-nw', '--num-workers', nargs='?', type=int, default=DEFAULT
 parser.add_argument('--data-parallel', nargs='+', default=DEFAULTS.data_parallel, help='Device list for DataParallel in Pytorch.')
 parser.add_argument('--verbose', action="store_true", help="Verbose mode.")
 parser.add_argument('--force-deterministic', action="store_true", help="Use deterministic mode in Pytorch. Might require setting environment variables.")
+parser.add_argument('--wandb', default=None, help="Enable wandb logging. Accepts the entity required for logging.")
+parser.add_argument('--project', nargs='?', type=str, default='exp', help="wandb project name for grouping experiments.")
 
 def run_one(exp_id: str,
             config_dir: str=DEFAULTS.config_dir, 
@@ -32,7 +34,9 @@ def run_one(exp_id: str,
             num_workers: int=DEFAULTS.num_workers,
             data_parallel: Union[list, None]=DEFAULTS.data_parallel,
             verbose: bool=DEFAULTS.verbose,
-            force_deterministic: bool=DEFAULTS.force_deterministic
+            force_deterministic: bool=DEFAULTS.force_deterministic,
+            wandb: bool=DEFAULTS.wandb,
+            project: str=DEFAULTS.project
             ):
     """Function for running all runs from one config file.
     Default values for all arguments can be found in ``stepback/defaults.py``.
@@ -61,6 +65,10 @@ def run_one(exp_id: str,
     force_deterministic : bool, optional
         Whether to run in Pytorch (full) deterministic mode.
         Not recommended, as this leads to substantial slow down. Seeds are set also without setting this to True.
+    wandb : bool, optional
+        Whether to enable wandb logging.
+    project : str, optional
+        wandb project name for grouping experiments, by default 'schedule-free'
     """
     
     # load config
@@ -84,7 +92,9 @@ def run_one(exp_id: str,
                  data_dir=data_dir,
                  num_workers=num_workers,
                  data_parallel=data_parallel,
-                 verbose=verbose)
+                 verbose=verbose,
+                 wandb=wandb,
+                 project=project)
         
         B.setup()
         B.run() # train and validate
@@ -110,6 +120,6 @@ if __name__ == '__main__':
             num_workers=args.num_workers,
             data_parallel=args.data_parallel,
             verbose=args.verbose,
-            force_deterministic=args.force_deterministic)
-    
-
+            force_deterministic=args.force_deterministic,
+            wandb=args.wandb,
+            project=args.project)

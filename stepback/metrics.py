@@ -14,7 +14,7 @@ import torch
 
 
 class Loss:
-    def __init__(self, name : str, backwards: bool=False):
+    def __init__(self, name : str, backwards: bool=False, reduction: str='mean'):
         """A loss function object. Can be used either as training loss or as evaluation loss/metric.
         
         The loss can be computed by ```self.compute(out, targets)```.
@@ -26,23 +26,28 @@ class Loss:
         backwards : bool, optional
             Whether backpropagation is done in self.compute. 
             Should be only set True for the training losss object. By default False.
+        reduction : str, optional
+            Specifies the reduction to apply to the output: 'mean' or 'sum'.
+            'mean': the weighted mean of the output is taken.
+            'sum': the output will be summed. By default 'mean'.
         """
         self.name = name
         self.backwards = backwards
+        self.reduction = reduction
         
         # defaults
         self._flatten_target = True
         self._flatten_out = False
         
         if self.name == 'cross_entropy':
-            self.criterion = torch.nn.CrossEntropyLoss()
+            self.criterion = torch.nn.CrossEntropyLoss(reduction=reduction)
         
         elif self.name == 'logistic':
-            self.criterion = torch.nn.SoftMarginLoss()
+            self.criterion = torch.nn.SoftMarginLoss(reduction=reduction)
             self._flatten_out = True
         
         elif self.name == 'squared':
-            self.criterion = torch.nn.MSELoss()
+            self.criterion = torch.nn.MSELoss(reduction=reduction)
             self._flatten_out = True
             
         elif self.name == 'cross_entropy_accuracy':

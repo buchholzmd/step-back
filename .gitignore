@@ -138,6 +138,11 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+# Ignore large output file
 output/*
 output/**/**/*.npz
 output/*/*
+
+# wandb
+wandb/
+*wandb*

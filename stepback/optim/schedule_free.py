@@ -32,6 +32,9 @@ class SGDScheduleFree(torch.optim.Optimizer):
             Learning rate parameter (default 1.0)
         momentum (float): momentum factor, must be between 0 and 1 exclusive
             (default: 0.9)
+        eps (float): 
+            Term added to the denominator outside of the root operation to 
+            improve numerical stability. (default: 1e-8).
         weight_decay (float): 
             Weight decay, i.e. a L2 penalty (default: 0).
         warmup_steps (int): Enables a linear learning rate warmup (default 0).
@@ -52,12 +55,13 @@ class SGDScheduleFree(torch.optim.Optimizer):
                  params: ParamsT,
                  lr: Union[float, torch.Tensor] = 1.0,
                  momentum: float = 0.9,
+                 eps=1e-8,
                  weight_decay: float = 0,
                  warmup_steps: int = 0,
                  r: float = 0.0,
                  weight_lr_power: float = 2,
                  M=1.0,
-                 polyak_lambda=None,
+                 polyak_lambda=1.0,
                  polyak_lb=0.0,
                  foreach: Optional[bool] = hasattr(torch, "_foreach_mul_"),
                  mode: str = "schedule-free"
@@ -71,6 +75,7 @@ class SGDScheduleFree(torch.optim.Optimizer):
 
         defaults = dict(lr=lr, 
                         momentum=momentum, 
+                        eps=eps,
                         r=r,
                         k=0,
                         warmup_steps=warmup_steps,
@@ -135,6 +140,7 @@ class SGDScheduleFree(torch.optim.Optimizer):
         for group in self.param_groups:
             momentum = group['momentum']
             lr = group['lr']
+            eps = torch.tensor(group['eps'])
             weight_decay = group['weight_decay']
             k = group['k']
             warmup_steps = group['warmup_steps']
@@ -154,12 +160,9 @@ class SGDScheduleFree(torch.optim.Optimizer):
             assert(group['mode'] in ['schedule-free', 
                                      'schedulet', 
                                      'pr-avg',
-                                     'polyak-sps',
-                                     'schedule-free-adam', 
-                                     'schedulet-adam', 
-                                     'pr-avg-adam'])
+                                     'schedule-free-polyak'])
             
-            if 'schedule-free' in group['mode'] or 'polyak-sps' in group['mode']:
+            if group['mode'] == 'schedule-free':
                 weight = ((k+1)**r) * (lr_max**weight_lr_power)
                 weight_sum = group['weight_sum'] = group['weight_sum'] + weight
 
@@ -175,7 +178,7 @@ class SGDScheduleFree(torch.optim.Optimizer):
                     ckp1 = weight/weight_sum
                 except ZeroDivisionError:
                     ckp1 = 0
-            elif 'pr-avg' in group['mode']:
+            elif 'pr-avg' in group['mode'] or 'polyak' in group['mode']:
                 ckp1 = 1/(k+1)
 
             active_p = [p for p in group['params'] if p.grad is not None]
@@ -188,7 +191,7 @@ class SGDScheduleFree(torch.optim.Optimizer):
                 y, grad, z = zip(*[(p, p.grad, self.state[p]['z']) 
                                 for p in active_p])
 
-                if 'polyak-sps' in group['mode']:
+                if 'polyak' in group['mode']:
                     # compute averaged grads
                     grad_norm = sum((g**2).sum() for g in grad)
                     if not torch.is_tensor(group['M']):
@@ -196,16 +199,22 @@ class SGDScheduleFree(torch.optim.Optimizer):
                     else:
                         M = group['M']
 
-                    if group['polyak_lambda'] is not None:
+                    # Only update M if polyak_lambda > 0 (keep M constant when polyak_lambda = 0)
+                    if group['polyak_lambda'] is not None and group['polyak_lambda'] > 0:
                         M = group['M'] = group['polyak_lambda'] * group['M'] + (1-group['polyak_lambda']) * grad_norm
                     if M <= 0:
                         M = group['M'] = grad_norm
                     
                     loss_gap = loss - group['polyak_lb']
                     proj_gap = sum(torch.sum(g * (zi - yi)) for g, zi, yi in zip(grad, z, y))
-                    lr = torch.clamp(loss_gap +  proj_gap, min=0) / torch.max(grad_norm, M).item()
+                    # Compute lr straightforwardly without aggressive safeguards
+                    numerator = torch.clamp(loss_gap +  proj_gap, min=0)
+                    denominator = torch.max(grad_norm, M).item()
+                    lr = (numerator / denominator + eps).item() if numerator > 0 else 0.0
 
                     group['lr'] = lr.item()
+
+                    ckp1 = 1/(k+1)
 
                     if 'polyak_events' not in self.state:
                         self.state['polyak_events'] = []
@@ -214,7 +223,7 @@ class SGDScheduleFree(torch.optim.Optimizer):
                                 'step': group['k'],
                                 'grad_norm': grad_norm.item(),
                                 'M': M.item(),
-                                'used_grad_norm': grad_norm < M,
+                                'used_grad_norm': int((grad_norm > M).item()),
                                 'lr': group['lr']
                     })
                 
@@ -234,40 +243,44 @@ class SGDScheduleFree(torch.optim.Optimizer):
                 # SGD step
                 torch._foreach_sub_(z, grad, alpha=lr)
             else:
+                # For polyak mode, compute lr once across all parameters BEFORE the parameter loop
+                if 'polyak' in group['mode']:
+                    # Compute aggregate grad_norm across all parameters
+                    grad_norm = sum((p.grad**2).sum() for p in active_p)
+                    if not torch.is_tensor(group['M']):
+                        M = group['M'] = torch.tensor([group['M']]).to(grad_norm.device)
+                    else:
+                        M = group['M']
+
+                    # Only update M if polyak_lambda > 0 (keep M constant when polyak_lambda = 0)
+                    if group['polyak_lambda'] is not None and group['polyak_lambda'] > 0:
+                        M = group['M'] = group['polyak_lambda'] * group['M'] + (1-group['polyak_lambda']) * grad_norm
+                    if M <= 0:
+                        M = group['M'] = grad_norm
+
+                    loss_gap = loss - group['polyak_lb']
+                    proj_gap = sum(torch.sum(p.grad * (self.state[p]['z'] - p)) for p in active_p)
+                    # Compute lr once for all parameters
+                    numerator = torch.clamp(loss_gap + proj_gap, min=0)
+                    lr = (numerator / torch.max(grad_norm, M).item()).item() if numerator > 0 else 0.0
+
+                    group['lr'] = lr
+
+                    if 'polyak_events' not in self.state:
+                        self.state['polyak_events'] = []
+
+                    self.state['polyak_events'].append({
+                            'step': group['k'],
+                            'grad_norm': grad_norm.item(),
+                            'M': M.item(),
+                            'used_grad_norm': int((grad_norm > M).item()),
+                            'lr': group['lr']
+                    })
+
                 for p in active_p:
                     y = p # Notation to match theory
                     grad = p.grad
                     z = self.state[p]['z']
-
-                    if 'polyak-sps' in group['mode']:
-                        # compute averaged grads
-                        grad_norm = (grad**2).sum()
-                        if not torch.is_tensor(group['M']):
-                            M = group['M'] = torch.tensor([group['M']]).to(p.device)
-                        else:
-                            M = group['M']
-
-                        if group['polyak_lambda'] is not None:
-                            M = group['M'] = group['polyak_lambda'] * group['M'] + (1-group['polyak_lambda']) * grad_norm
-                        if M <= 0:
-                            M = group['M'] = grad_norm
-
-                        loss_gap = loss - group['polyak_lb']
-                        proj_gap = torch.sum(grad * (z - y))
-                        lr = torch.clamp(loss_gap + proj_gap, min=0) / torch.max(grad_norm, M).item()
-
-                        group['lr'] = lr.item()
-
-                        if 'polyak_events' not in self.state:
-                            self.state['polyak_events'] = []
-
-                        self.state['polyak_events'].append({
-                                'step': group['k'],
-                                'grad_norm': grad_norm.item(),
-                                'M': M.item(),
-                                'used_grad_norm': grad_norm < M,
-                                'lr': group['lr']
-                        })
 
                     # Apply weight decay
                     if weight_decay != 0:
