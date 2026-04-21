@@ -189,9 +189,10 @@ class SGDScheduleFreeSPS(torch.optim.Optimizer):
                         # y^t = \b*x^t+(1-\b)*z^t
                 group['train_mode'] = True
 
-    def step(self, closure: LossClosure=None) -> OptFloat:
-        with torch.enable_grad():
-            loss = closure()
+    def step(self, closure: LossClosure=None, loss=None) -> OptFloat:
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
                 
         ckp1 = 1/(self.k+1)
         self.k += 1
